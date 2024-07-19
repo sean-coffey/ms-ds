@@ -1,0 +1,159 @@
+---
+title: "NYPD Shooting Incidents"
+author: "Sean Coffey"
+date: "2024-07-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries
+library(tidyverse)
+library(lubridate)
+```
+
+## Import NYPD Shooting Incident Data Set
+
+List of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year.
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included. This data can be used by the public to explore the nature of shooting/criminal activity. 
+
+```{r import, message = FALSE}
+# creates a variable containing the csv file downloaded from the data.gov website
+nypd_url = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_data = read_csv(nypd_url)
+```
+
+## Basic tidying and transforming of the data set
+The data is already tidy (one row per incident). There are two main issues with the data to resolve:  
+
+1. Data types: much of the data are really factors but recorded as character
+2. Many missing values, which may be something I will have to re-visit, once I've done some analysis.
+
+The missing values issue with the perp data (age-group, sex, race) is significant, approx half the observations are unknown or NA. There is no sensible imputation here, so will probably have to accept that analysis of these factors may be misleading and needs to be handled carefully.
+
+```{r tidy and transform}
+nypd <-nypd_data %>%
+  # changing the data types appropriately
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         BORO = factor(BORO),
+         LOC_OF_OCCUR_DESC = factor(LOC_OF_OCCUR_DESC),
+         JURISDICTION_CODE = factor(JURISDICTION_CODE, labels = c("Patrol", "Transit", "Housing")),
+         LOC_CLASSFCTN_DESC = factor(LOC_CLASSFCTN_DESC),
+         PERP_AGE_GROUP = factor(PERP_AGE_GROUP),
+         PERP_SEX = factor(PERP_SEX),
+         PERP_RACE = factor(PERP_RACE),
+         VIC_AGE_GROUP = factor(VIC_AGE_GROUP),
+         VIC_SEX = factor(VIC_SEX),
+         VIC_RACE = factor(VIC_RACE),
+         Longitude = as.numeric(Longitude),
+         Latitude = as.numeric(Latitude)) %>%
+  #Partial field selection for project analyses - reducing from 21 columns to 15
+  #Location information has a high percentage of missing values, so will remove for now
+  select(OCCUR_DATE, OCCUR_TIME, BORO, PRECINCT, JURISDICTION_CODE, LOCATION_DESC, 
+         STATISTICAL_MURDER_FLAG, PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE, 
+         Latitude, Longitude) # keeping because if I have time, may look at trying to plot on map.
+
+summary(nypd)
+```
+
+## First visualisations
+
+I'm using this project as an opportunity to revise my R basics rather than to create a meaningful analysis of the NYPD data. Accordingly, I will not spend time textualising conclusions.
+
+However a couple of simple observations, without quantification:
+1. COVID seemed to have an impact (being careful not to assume causation from correlation), the number of shootings rose from 2020.
+2. Majority happen at night
+3. More likely to happen in summer than winter
+4. Victims are more likely to be men than women and younger rather than older.
+5. Overall there is trend downwards (see model section)
+
+
+
+``` {r visualise}
+nypd_by_date <- nypd %>%
+  mutate(month = month(OCCUR_DATE),
+         day = day(OCCUR_DATE),
+         year = year(OCCUR_DATE),
+         day_night = case_when(OCCUR_TIME > "21:00" | OCCUR_TIME < "07:00" ~ "night",
+                               OCCUR_TIME <= "21:00" & OCCUR_TIME >= "07:00" ~ "day")) %>%
+  group_by(day, month, year)
+
+nypd_by_date %>%
+  ggplot(aes(x=year, fill = BORO)) +
+  geom_bar() + 
+  labs(title = "Shootings Each Year by Borough", y = NULL)
+
+nypd_by_date %>%
+  ggplot(aes(x=year, fill = STATISTICAL_MURDER_FLAG)) +
+  geom_bar() + 
+  labs(title = "Shootings Each Year  - Murders?", y = NULL)
+
+nypd_by_date %>%
+  ggplot(aes(x=year, fill = day_night)) +
+  geom_bar() + 
+  labs(title = "Shootings Each Year Day or Night", y = NULL)
+
+nypd_by_date %>%
+  ggplot(aes(x=month, fill = day_night)) +
+  geom_bar() + 
+  labs(title = "Shootings distribution during a year", y = NULL)
+
+nypd %>%
+  filter(VIC_AGE_GROUP != "UNKNOWN" & VIC_AGE_GROUP != "1022") %>%
+  filter(VIC_SEX != "U") %>%
+  group_by(VIC_SEX, VIC_AGE_GROUP) %>%
+  summarise(shootings = n()) %>%
+  ggplot(aes(x="", y =shootings, fill = VIC_AGE_GROUP)) +
+  geom_bar(stat = 'identity', width = 1) + 
+  coord_polar("y", start = 0 )+
+  theme_light()+
+  facet_wrap(~VIC_SEX, scales = "free") +
+  labs(title = "Victim Sex and Age Group", x = NULL, y = NULL)
+
+```
+
+## An attempt at a model
+
+Just a trend analysis, is there really a significant decrease in shootings over time?
+``` {r model}
+
+nypd_model <- nypd%>%
+  mutate(month_year = floor_date(OCCUR_DATE, "month")) %>%
+  group_by(month_year) %>%
+  summarise(shootings = n())
+
+simple_model <- lm(shootings ~ month_year, data = nypd_model)
+summary(simple_model)
+
+nypd_model %>%
+  mutate(predicted_shootings = predict(simple_model)) %>%
+  ggplot() +
+  geom_point(aes(x = month_year, y = shootings), colour = "blue") +
+  geom_point(aes(x = month_year, y = predicted_shootings), colour = "red") +
+  labs(title = "Model prediction for Shootings over time", x = NULL, y = NULL)
+```
+
+## Discussion about bias
+
+The assessment question asks for a discussion on where bias might be introduced into the analysis.
+
+*A list of possibilities:*
+
+1. Handling of missing data. In particular only approx 50% of cases have perp race, sex, age information. Using the remaining data to conclude on distribution of these characteristics may be erroneous without understanding the reasons behind the missing values. Is it reasonable to assume they follow the same distribution as the known values or not?
+
+2. It would seem important to understand more about the underlying populations before concluding on the meaningfulness of distribution of characteristics for perps and victims. If the underlying population is 90% white-hispanic vs 90% white vs 90% black, clearly that will determine the Baynesian probabilities of perps and victims coming from those racial classes. I avoided any analysis of race as I didn't have this understanding when I compiled the document.
+
+3. Causation and correlation bias: the data show that you're significantly more likely to be shot at night if you are a male under the age of 45. But is this just a reflection of who is on the streets? Similarly the data seem to show you are more likely to be shot during the summer months, but this may also just be that there are more people out and about during the warmer months. 
+
+4. Is the initial data collection biased? It is coming from the NYPD, does that source have an inherent bias in what is collected, reported, analysed and prosecuted. I don't know, I would hope not at this base level, but it might be useful to have some alternative sources for comparison. 
+
+
+
+## System Info
+```{r sysInfo}
+Sys.info()
+
+```
+
