@@ -1,0 +1,345 @@
+---
+title: "Final Project 2: Reproducible Report on COVID19 Data"
+author: "Sean Coffey"
+date: "2024-07-19"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries
+library(tidyverse)
+library(lubridate)
+library(scales) # Used to scale axes for visualisation on two axes
+library(zoo) # Used to get rollmean() function to compute 7-day averages
+library(usmap)
+```
+
+## Instructions for Final Project 2
+
+1. Import, tidy and analyze the COVID19 dataset from the Johns Hopkins Github site. This is the same dataset I used in class. Feel free to repeat and reuse what I did if you want to. 
+2. Be sure your project is a reproducible .rmd document which your peers can download and knit. 
+3. It should contain some visualization and  analysis that is unique to your project. You may use the data to do any analysis that is of interest to you. 
+4. You should include at least two visualizations and one model.  
+5. Be sure to identify any bias possible in the data and in your analysis.
+
+## Import JHU CSSE COVID-19 Dataset
+
+This project uses the COVID time-series data set from John Hopkins University. Full information can be found here: <https://github.com/CSSEGISandData/COVID-19/blob/master/csse_covid_19_data/README.md>
+
+```{r import, message = FALSE}
+# creates four variables containing the csv files from John Hopkins github COVID content
+base_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+filenames = c("time_series_covid19_confirmed_US.csv",  "time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_US.csv",  "time_series_covid19_deaths_global.csv")
+urls = paste0(base_url, filenames)
+us_cases = read_csv(urls[1])
+global_cases = read_csv(urls[2])
+us_deaths = read_csv(urls[3])
+global_deaths = read_csv(urls[4])
+
+# Also load global population data, source as per lecture.
+uid_lookup_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat,Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+# Load political lean data from https://worldpopulationreview.com/state-rankings/most-republican-states
+# This is 2024 data, so doesn't fully align with timeline, but for the purposes of the exercise...
+political_leaning = read_csv("data/political_lean_by_state.csv")
+```
+
+## Basic tidying and cleaning of the data sets
+
+Two base data frames ("us" and "global") are created from the imported data, according to the following steps:
+
+1. Use 'pivot_longer' to create separate observations for each date
+2. Select a subset of columns for analysis
+3. Rename some columns for consistency across data sets
+4. Mutate, to create date data from chr data type input (lubridate package)
+5. Join deaths and cases into one file for both global data and us data.
+6. Add population data for global (from different source as per lecture)
+
+```{r clean}
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+# create one file with cumulative deaths and cases
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = 'Country/Region',
+         Province_State = 'Province/State') %>%
+  mutate(date = mdy(date)) %>%
+  filter(cases > 0) %>%
+  unite(Combined_Key, c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+# add population data to global
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID,FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+
+summary(global)
+
+us_cases <- us_cases %>%
+  pivot_longer(cols = matches(".+/.+/.+"),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(UID, iso2, iso3, code3, Lat, Long_)) %>%
+  mutate(date = mdy(date))
+
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = matches(".+/.+/.+"),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(UID, iso2, iso3, code3, Lat, Long_)) %>%
+  mutate(date = mdy(date))
+
+us <- us_cases %>%
+  full_join(us_deaths)
+
+summary(us)
+
+```
+## Simple visualisation and analysis
+
+The subsequent section is pretty close to what was shown in the lectures, which I have kept as revision of key R functions and to view a couple of basic analyses.
+
+``` {r visualisation}
+
+us_by_state <- us %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population,
+         new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, new_cases, new_deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+us_totals <- us_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population,
+         new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(Country_Region, date, cases, deaths, new_cases, new_deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+us_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = cases, colour = "cases")) + 
+  geom_point(aes(y = deaths, colour = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in US", y = NULL)
+
+state <- "New York"
+us_by_state %>%
+  filter(Province_State == state )%>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = cases, colour = "cases")) + 
+  geom_point(aes(y = deaths, colour = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID 19 in ",state), y = NULL)
+
+us_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = new_cases, colour = "new_cases")) + 
+  geom_point(aes(y = new_deaths, colour = "new_deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in US", y = NULL)
+
+state <- "New York"
+us_by_state %>%
+  filter(Province_State == state )%>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = new_cases, colour = "new_cases")) + 
+  geom_point(aes(y = new_deaths, colour = "new_deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID 19 in ",state), y = NULL)
+```
+
+## Improved Visualisation and Analysis
+
+Drawing on work I did in the earlier Colorado course 'Expressway to Data Science: R Programming and Tidyverse", I used this exercise as an opportunity to remind myself of how to generate these types of visualisation.
+
+The obvious challenge with the two charts that follow is that cases and deaths are shown on the same chart, despite having very different absolute values. I tried to resolve this by using two axes and clearly different colour schemes. In the end, I decided that the benefit of summarising onto one chart allowing a timewise comparison of the trends outweighed the potential confusion of differing axis scales. 
+
+The chart shows the positive change in 2022 as case numbers continued to rise sharply, but this was not matched by an equivalent rise in deaths. Further analysis, for which I don't have time, would be needed to establish causation.
+
+However, as becomes clear in the next section, the cumulative data is hiding something. Whilst the cumulative chart appears to show that the ratio of deaths to cases halved at the start of 2022 (a significant positive improvement), actually this change is largely explained by a major peak in cases during January 2022, so the improvement is overstated.
+
+
+#### How did the number of cases and deaths in the US evolve over time?
+
+``` {r us evolution over time}
+
+# scalar used to plot secondary axis
+scalar = 50
+
+# local variables for date range
+max_date = max(us_totals$date)
+min_date = min(us_totals$date)
+
+ggplot(data = us_totals, mapping = aes(x = date)) +
+  geom_line(mapping = aes(y = cases), colour = "blue") +
+  geom_line(mapping = aes(y = deaths * scalar), colour = "red") +
+  # format with two axes for ggplot, the lines are in reality plotted 
+  # for the same axis, requiring a scaling factor to be used.
+  scale_y_continuous(
+    labels = label_number(suffix = " M", scale = 1e-6),
+    name = "Cases - Millions",
+    sec.axis = sec_axis(
+      ~./scalar, 
+      name = "Deaths - Thousands", 
+      labels = label_number(suffix = " K", scale = 1e-3)
+      )
+  ) +
+  # Amend the colours of the axes for readability
+  theme(
+    axis.title.y = element_text(colour = "blue", size=11),
+    axis.title.y.right = element_text(colour = "red", size=11),
+    axis.text.y = element_text(color = "blue", size = 10),
+    axis.text.y.right = element_text(color = "red", size = 10)
+  ) +
+
+  ggtitle(str_c("US COVID Cases and Deaths, ", min_date, " to ",max_date,sep = ""))
+
+```
+
+#### Seven day rolling averages
+
+As the cumulative data could be hiding detail and the daily data (above) shows so much variance day-to-day that it becomes hard to see short term trends, I decided to include an assessment of the 7 day rolling averages for cases and deaths. I remember this was one of the key stats that the majority of news channels showed at the time. It also seems a useful R technique to keep to hand for timeseries analysis. 
+
+Rolling seven day averages were calculated using **rollmean()**, selected from the package **"zoos"**. 
+
+```{r seven-day averages}
+
+# Add seven day rolling averages to data
+us_weeks <- us_totals %>%
+  mutate(
+    deaths_7 = rollmean(new_deaths, k = 7, align = "right", fill = NA),
+    cases_7 = rollmean(new_cases, k = 7, align = "right", fill = NA)
+  )
+
+# Extract some other key stats
+max_cases_7 <- max(us_weeks$new_cases, na.rm = TRUE)
+max_deaths_7 <- max(us_weeks$new_deaths, na.rm = TRUE)
+max_cases_7_date <- max(us_weeks$date[us_weeks$new_cases == max_cases_7][2])
+max_deaths_7_date <- max(us_weeks$date[us_weeks$new_deaths == max_deaths_7][2])
+
+
+# scalar used to plot secondary axis
+scalar = 100
+
+us_weeks %>%
+  # shift start date to allow for rolling average
+  filter(between(date, min_date+7, max_date)) %>%
+         
+  ggplot(mapping = aes(x = date)) +
+    geom_line(mapping = aes(y = cases_7), colour = "blue") +
+    geom_line(mapping = aes(y = deaths_7 * scalar), colour = "red") +
+    # format with two axes for ggplot, the lines are in reality plotted 
+    # for the same axis, requiring a scaling factor to be used.
+    scale_y_continuous(
+      name = "Cases - Thousands",
+      labels = label_number(suffix = " K", scale = 1e-3),
+      sec.axis = sec_axis(
+        ~./scalar, 
+        name = "Deaths - Thousands",
+        labels = label_number(suffix = " K", scale = 1e-3),
+        )
+    ) +
+    # Amend the colours of the axes for readability
+  theme(
+    axis.title.y = element_text(colour = "blue", size=11),
+    axis.title.y.right = element_text(colour = "red", size=11),
+    axis.text.y = element_text(color = "blue", size = 10),
+    axis.text.y.right = element_text(color = "red", size = 10)
+  ) +
+
+  ggtitle(str_c("US COVID 7 day averages between, ", min_date +7, " to ",max_date,sep = ""))
+```
+
+From the data, a maximum of `r format(max_cases_7, big.mark = ",")` new cases in one week was recorded on `r format(max_cases_7_date, "%B %d, %Y")` and a maximum of `r format(max_deaths_7, big.mark = ",")` new deaths were recorded in one week on `r format(max_deaths_7_date, "%B %d, %Y")`.
+
+I have not been able to determine the reason for the large peak in cases during January 2022. This would be interesting, if for no other reason than to rule out a data quality issue.
+
+It is also interesting to note that the ratio of cases to deaths seems to move in the wrong direction at the end of the period. Is this the result of new strains of the virus? Or, some other reason. More work would be needed.
+
+
+#### How did the performance compare by US state during COVID?
+
+As we also have the state data, it was interesting to look at how the various states compared in terms of their performance in handling COVID.
+
+There are multiple metrics that could have been used here (absolute cases and deaths, ratio of cases to deaths,...) but I selected **deaths per million people** which seemed to have least bias:
+
+1. Not impacted by the number of cases reported (which could differ according to policy rather than reality)
+2. Not impacted by the size of the state
+3. Objectively, the most important metric to improve. (i.e. reduce deaths)
+
+```{r state performance}
+
+state_performance <- us_by_state %>%
+  filter(Province_State != "Grand Princess" & Province_State != "Diamond Princess") %>% #removes this outliers (probably should filter in initial data cleaning)
+  group_by(Province_State) %>%
+  summarise(cases = max(cases), deaths = max(deaths), Population = max(Population)) %>%
+  mutate(deaths_per_million = deaths * 1000000 / Population) %>%
+  arrange(desc(deaths_per_million)) %>%
+  inner_join(statepop, by = join_by(Province_State == full)) %>%
+  select(fips, Province_State, cases, deaths, Population, deaths_per_million)
+
+state_performance
+
+plot_usmap(data = state_performance, regions = "states", values = "deaths_per_million", labels = TRUE, label_color = "white") + 
+  scale_fill_continuous(low = "blue", high = "red", name = "Deaths Per Million", label = scales::comma) +
+  labs(title = "US States", subtitle = "Deaths per Million by March 2023") +
+  theme(legend.position = "right")
+```
+
+## Modelling COVID outcome vs Political Leaning - BIAS caution
+
+A quick inspection of the geographic plot, appeared to show a linkage between politics and COVID outcome. To validate if this was supported by the data, I imported a data set from [https://worldpopulationreview.com/state-rankings/most-republican-states] which shows the 2024 political leanings of each state in the union. Then, performed a quick correlation analysis between the degree of Republican political advantage and the deaths per million experienced in that state.
+
+There are potential issues with this assessment:
+
+1. The data source shows 2024 political alignment, which has almost certainly changed since the period under analysis. (not that much though, I suspect)
+2. The correlation is only moderate and might be confused by other factors that are also impacting the outcomes from COVID. 
+3. Personal bias that the democrat policies for dealing with COVID seemed to make more sense, which could influence my thinking. (Though I have tried to avoid this.)
+4. As always, correlation does not show causation.
+
+
+``` {r modelling}
+
+state_covid_politics <- state_performance %>%
+  inner_join(political_leaning, by = join_by(Province_State == state))
+
+state_covid_politics
+
+political_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$republican_adv), digits = 2)
+# just to see if there is any linkage with the most populous states (seems not)
+population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)
+```
+
+A correlation of `r political_correlation` indicates a **moderate positive correlation** between Republican leaning politics and poor COVID outcomes, assessed by deaths per million in the state during the period `r min_date` to `r max_date`. This correlation figure aligns with a visual interpretation of the plot and the tabular data associated. Nine of the top 10 states ranked by death per million are Republican leaning, whereas 7 of the 10 best performing states lean towards Democrat.
+
+

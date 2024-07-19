@@ -1,0 +1,153 @@
+---
+title: "data science as a field"
+author: "Sean Coffey"
+date: "2024-07-01"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries
+library(tidyverse)
+library(lubridate)
+```
+
+## Import JHU CSSE COVID-19 Dataset
+
+The exercise uses the COVID time-series data set from John Hopkins University. Full information can be found here: <https://github.com/CSSEGISandData/COVID-19/blob/master/csse_covid_19_data/README.md>
+
+```{r import, message = FALSE}
+# creates four variables containing the csv files from John Hopkins github COVID content
+base_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+filenames = c("time_series_covid19_confirmed_US.csv",  "time_series_covid19_confirmed_global.csv", "time_series_covid19_deaths_US.csv",  "time_series_covid19_deaths_global.csv")
+urls = paste0(base_url, filenames)
+us_cases = read_csv(urls[1])
+global_cases = read_csv(urls[2])
+us_deaths = read_csv(urls[3])
+global_deaths = read_csv(urls[4])
+
+uid_lookup_url = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat,Long_, Combined_Key, code3, iso2, iso3, Admin2))
+```
+
+## Basic cleaning of the data sets
+
+```{r clean}
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = 'Country/Region',
+         Province_State = 'Province/State') %>%
+  mutate(date = mdy(date)) %>%
+  filter(cases > 0) %>%
+  unite(Combined_Key, c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID,FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+
+summary(global)
+
+us_cases <- us_cases %>%
+  pivot_longer(cols = matches(".+/.+/.+"),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(FIPS, UID, iso2, iso3, code3, Lat, Long_)) %>%
+  mutate(date = mdy(date))
+
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = matches(".+/.+/.+"),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(FIPS, UID, iso2, iso3, code3, Lat, Long_)) %>%
+  mutate(date = mdy(date))
+
+us <- us_cases %>%
+  full_join(us_deaths)
+
+summary(us)
+```
+## Simple visualisation and analysis
+
+``` {r visualisation}
+
+us_by_state <- us %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population,
+         new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, new_cases, new_deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+us_totals <- us_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000 / Population,
+         new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(Country_Region, date, cases, deaths, new_cases, new_deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+us_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = cases, colour = "cases")) + 
+  geom_point(aes(y = deaths, colour = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in US", y = NULL)
+
+state <- "New York"
+us_by_state %>%
+  filter(Province_State == state )%>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = cases, colour = "cases")) + 
+  geom_point(aes(y = deaths, colour = "deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID 19 in ",state), y = NULL)
+
+us_totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = new_cases, colour = "new_cases")) + 
+  geom_point(aes(y = new_deaths, colour = "new_deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID 19 in US", y = NULL)
+
+state <- "New York"
+us_by_state %>%
+  filter(Province_State == state )%>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date )) + 
+  geom_point(aes(y = new_cases, colour = "new_cases")) + 
+  geom_point(aes(y = new_deaths, colour = "new_deaths")) + 
+  scale_y_log10() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) +
+  labs(title = str_c("COVID 19 in ",state), y = NULL)
+```
+``` {r modelling}
+my_model <- lm()
+
+```

@@ -1,0 +1,906 @@
+---
+title: "COVID 19 Analysis"
+author: "Sean Coffey"
+date: "15-March-2024"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(usmap)
+library(scales) # Used to scale axes in Q2
+library(zoo) # Used to get rollmean() function for Q3
+
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, fig.align = "center")
+```
+
+### Part 1 - Basic Exploration of US Data
+
+The New York Times (the Times) has aggregated reported COVID-19 data from state and local governments and health departments since 2020 and provides public access through a repository on GitHub. One of the data sets provided by the Times is county-level data for cumulative cases and deaths each day. This will be your primary data set for the first two parts of your analysis. 
+
+County-level COVID data from 2020, 2021, and 2022 has been imported below. Each row of data reports the cumulative number of cases and deaths for a specific county each day. A FIPS code, a standard geographic identifier, is also provided which you will use in Part 2 to construct a map visualization at the county level for a state. 
+
+Additionally, county-level population estimates reported by the US Census Bureau has been imported as well. You will use these estimates to caluclate statistics per 100,000 people. 
+
+```{r import-nyt-data, include = FALSE}
+# Import New York Times COVID-19 data
+# Import Population Estimates from US Census Bureau 
+
+us_counties_2020 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties-2020.csv")
+us_counties_2021 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties-2021.csv")
+us_counties_2022 <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties-2022.csv")
+
+us_population_estimates <- read_csv("data/fips_population_estimates.csv")
+```
+
+##### Question 1 
+
+Your first task is to combine and tidy the 2020, 2021, and 2022 COVID data sets and find the total deaths and cases for each day since March 15, 2020 (2020-03-15). The data sets provided from the NY Times also includes statistics from Puerto Rico, a US territory. You may remove these observations from the data as they will not be needed for your analysis. Once you have tidied the data, find the total COVID-19 cases and deaths since March 15, 2020. Write a sentence or two after the code block communicating your results. Use inline code to include the `max_date`, `us_total_cases`, and `us_total_deaths` variables. To write inline code use `r `. 
+
+```{r p1q1-response}
+
+# Combine and tidy the 2020, 2021, and 2022 COVID data sets 
+# Remove Puerto Rico (not needed) and external territories to leave 51 states.
+# Summarise total_deaths and total_cases cumulative by date from March 15 2020
+base_data <- rbind(us_counties_2020, us_counties_2021, us_counties_2022) %>%
+  filter(
+    state != "Puerto Rico",
+    state != "Guam", 
+    state != "Virgin Islands", 
+    state !="Northern Mariana Islands", 
+    state !="American Samoa",
+    date >= as.Date("2020-03-15")
+  ) %>%
+  arrange(date)
+
+us_data <- base_data %>% #create summary for national level part one
+  group_by(date) %>%
+  summarise(
+    total_deaths = sum(deaths), 
+    total_cases = sum(cases),
+  )
+
+us_data # check my output looks like the requirement
+
+# Assign variables to use inline as part of the report
+max_date <- max(us_data$date)
+us_total_deaths <- max(us_data$total_deaths)
+us_total_cases <- max(us_data$total_cases)
+```
+
+Having combined the data sets for 2020, 2021 and 2022, excluded Puerto Rico and summarised for the whole US by day starting from March 15 2020, the data shows that, as of `r format(max_date, "%B %d, %Y")` , there had been `r format(us_total_cases, big.mark = ",")` cases, resulting in `r format(us_total_deaths, big.mark = ",")` deaths. Part 2 of this project looks at State level data and also seems to require (based on sample output given), that there are only 51 states, based on this the data for four other external territories was removed. 
+
+_Note:_ the data values in us_data are cumulative. I'm unsure if this is really _tidy_ data, as observations contain information from multiple observations. However, for now I will wait before converting to _reported per-day_ numbers, as these might also be problematic (when did the deaths actually occur?). This analysis is anyway required in Question 3 below. 
+
+
+##### Question 2 
+
+Create a visualization for the total number of deaths and cases in the US since March 15, 2020. Before you create your visualization, review the types of plots you can create using the ggplot2 library and think about which plots would be effective in communicating your results. After you have created your visualization, write a few sentences describing your visualization. How could the plot be interpreted? Could it be misleading? 
+
+```{r p1q2-response}
+# scalar used to plot secondary axis
+scalar = 50
+
+ggplot(data = us_data, mapping = aes(x = date)) +
+  geom_line(mapping = aes(y = total_cases), colour = "blue") +
+  geom_line(mapping = aes(y = total_deaths * scalar), colour = "red") +
+  # format with two axes for ggplot, the lines are in reality plotted 
+  # for the same axis, requiring a scaling factor to be used.
+  scale_y_continuous(
+    labels = label_number(suffix = " M", scale = 1e-6),
+    name = "Cases - Millions",
+    sec.axis = sec_axis(
+      ~./scalar, 
+      name = "Deaths - Thousands", 
+      labels = label_number(suffix = " K", scale = 1e-3)
+      )
+  ) +
+  # Amend the colours of the axes for readability
+  theme(
+    axis.title.y = element_text(colour = "blue", size=11),
+    axis.title.y.right = element_text(colour = "red", size=11),
+    axis.text.y = element_text(color = "blue", size = 10),
+    axis.text.y.right = element_text(color = "red", size = 10)
+  ) +
+
+  ggtitle("US COVID Cases and Deaths, 15-Mar-2020 to 31-Dec-2022")
+
+```
+
+In the end, I opted for a simple line graph as the cleanest way to show the trends in the data over time. The key issue is the widely different scales for the two axes (deaths in thousands whilst cases are in the millions). Comparing the rate of increase can certainly be misleading here, although they look similar, cases went from 0 to 50 million in the same time that deaths rose from 0 to ~750k.  
+
+To keep it readable, I chose to match axis text colour with line colour and set the number format in "millions" and "thousands", to give the reader multiple visual clues to the differences. 
+
+
+##### Question 3
+
+While it is important to know the total deaths and cases throughout the COVID-19 pandemic, it is also important for local and state health officials to know the the number of new cases and deaths each day to understand how rapidly the virus is spreading. Using the table you created in Question 1, calculate the number of new deaths and cases each day and a seven-day average of new deaths and cases. Once you have organized your data, find the days that saw the largest number of new cases and deaths. Write a sentence or two after the code block communicating your results.
+
+```{r p1q3-response, }
+#  us_data columns
+#  date
+#  total_deaths     >  cumulative deaths up to and including  associated date
+#  total_cases      >  cumulative cases up to and including  associated date
+#  delta_deaths_1   >  number of new deaths since the previous day
+#  delta_cases_1    >  number of new cases since the previous day
+#  delta_deaths_7   >  average number of deaths in a seven-day period
+#  delta_cases_7    >  average number of cases in a seven-day period
+
+us_data <- us_data %>%
+  mutate(
+    delta_deaths_1 = total_deaths - lag(total_deaths, n = 1),
+    delta_cases_1 = total_cases - lag(total_cases, n = 1),
+    delta_deaths_7 = rollmean(delta_deaths_1, k = 7, align = "right", fill = NA),
+    delta_cases_7 = rollmean(delta_cases_1, k = 7, align = "right", fill = NA)
+  )
+us_data # check my output looks like the requirement
+
+# Extract the key stats requested
+max_new_cases <- max(us_data$delta_cases_1, na.rm = TRUE)
+max_new_deaths <- max(us_data$delta_deaths_1, na.rm = TRUE)
+max_new_cases_date <- us_data$date[us_data$delta_cases_1 == max_new_cases][2]
+max_new_deaths_date <- us_data$date[us_data$delta_deaths_1 == max_new_deaths][2]
+```
+
+For question 3, cumulative cases/deaths was converted to per_day_deltas using **lag(data, n=1)** function. There were several possibilities for calculating rolling means, **rollmean()** was selected from the package **"zoos"**.  
+
+From the data, a maximum of `r format(max_new_cases, big.mark = ",")` new cases were recorded on `r format(max_new_cases_date, "%B %d, %Y")` and a maximum of `r format(max_new_deaths, big.mark = ",")` new deaths were recorded on `r format(max_new_deaths_date, "%B %d, %Y")`.
+
+##### Question 4
+
+
+```{r p1q4-response}
+
+# Extract total us population by year from us_population_estimates
+pop <- summarise(us_population_estimates, pop_total = sum(Estimate), .by = Year)
+us_pop_2020 <- pop$pop_total[pop$Year == 2020]
+us_pop_2021 <- pop$pop_total[pop$Year == 2021]
+
+# Create a new table, based on the table from Question 3, and calculate the 
+# number of new deaths and cases per 100,000 people each day and a seven day 
+# average of new deaths and cases per 100,000 people.
+
+us_data_100k <- us_data %>%
+  mutate(
+    Year = year(date),
+    total_deaths = case_when(grepl(2020,Year) ~ total_deaths * 100000 / us_pop_2020,
+                            grepl(2021,Year) ~ total_deaths * 100000 / us_pop_2021,
+                            .default = NA),
+    
+    total_cases = case_when(grepl(2020,Year) ~ total_cases * 100000 / us_pop_2020,
+                           grepl(2021,Year) ~ total_cases * 100000 / us_pop_2021,
+                           .default = NA),
+    delta_deaths_1 = total_deaths - lag(total_deaths, n = 1),
+    delta_cases_1 = total_cases - lag(total_cases, n = 1),
+    delta_deaths_7 = rollmean(delta_deaths_1, k = 7, align = "right", fill = NA),
+    delta_cases_7 = rollmean(delta_cases_1, k = 7, align = "right", fill = NA)
+        )
+us_data_100k
+
+```
+
+The combination of **grepl()** and **case_when()** provides powerful functionality to move through a data set applying differing transformations depending on observed variables. At the level of total_us, it doesn't add much more understanding to convert the numbers to per_100k. However, it could be interesting when extending the analysis to a global level to make inter-country comparisons more meaningful.  
+
+*Note:* As there is only population data for 2020 and 2021, may need to think of the best way to impute population in 2022
+
+#### Question 5
+
+```{r p1q5-response}
+# Create a visualization to compare the seven-day average cases and deaths per 100,000 people. 
+
+# scalar used to plot secondary axis
+scalar = 100
+
+us_data_100k %>%
+  filter(between(date, as.Date("2020-03-22"), as.Date("2021-12-31"))) %>%
+         
+  ggplot(mapping = aes(x = date)) +
+    geom_line(mapping = aes(y = delta_cases_7), colour = "blue") +
+    geom_line(mapping = aes(y = delta_deaths_7 * scalar), colour = "red") +
+    # format with two axes for ggplot, the lines are in reality plotted 
+    # for the same axis, requiring a scaling factor to be used.
+    scale_y_continuous(
+      name = "Cases - per 100k population",
+      sec.axis = sec_axis(
+        ~./scalar, 
+        name = "Deaths - per 100k population", 
+        )
+    ) +
+    # Amend the colours of the axes for readability
+  theme(
+    axis.title.y = element_text(colour = "blue", size=11),
+    axis.title.y.right = element_text(colour = "red", size=11),
+    axis.text.y = element_text(color = "blue", size = 10),
+    axis.text.y.right = element_text(color = "red", size = 10)
+  ) +
+
+  ggtitle("US COVID Cases and Deaths 7 day average, 22-Mar-2020 to 31-Dec-2021")
+
+```
+
+Whilst this chart suffers from the same complication as the first one (two very different axis scales). It clearly shows the initial spike in deaths, and the lag between waves of cases and deaths. It would be interesting to extend the analysis into 2022 to better understand the last spike in cases at the end of 2021 and what is driving that.  
+
+Let's do that with a simple imputation of 2022 population assuming constant linear growth.
+```{r optional_extension_q5}
+
+# Extract total us population by year from us_population_estimates
+us_pop_2022 <- us_pop_2021 + (us_pop_2021 - us_pop_2020)
+
+# Repeat Q4 & Q5 analysis, this time with imputed population for 2022
+us_data_100k_new <- us_data %>%
+  mutate(
+    Year = year(date),
+    total_deaths = case_when(grepl(2020,Year) ~ total_deaths * 100000 / us_pop_2020,
+                            grepl(2021,Year) ~ total_deaths * 100000 / us_pop_2021,
+                            grepl(2022,Year) ~ total_deaths * 100000 / us_pop_2022,
+                            .default = NA),
+    
+    total_cases = case_when(grepl(2020,Year) ~ total_cases * 100000 / us_pop_2020,
+                           grepl(2021,Year) ~ total_cases * 100000 / us_pop_2021,
+                           grepl(2022,Year) ~ total_cases * 100000 / us_pop_2022,
+                           .default = NA),
+    delta_deaths_1 = total_deaths - lag(total_deaths, n = 1),
+    delta_cases_1 = total_cases - lag(total_cases, n = 1),
+    delta_deaths_7 = rollmean(delta_deaths_1, k = 7, align = "right", fill = NA),
+    delta_cases_7 = rollmean(delta_cases_1, k = 7, align = "right", fill = NA)
+        )
+
+# Third time I've used this code, definitely wishing I'd written a function.
+us_data_100k_new %>%
+  filter(between(date, as.Date("2020-03-22"), as.Date("2022-12-31"))) %>%
+         
+  ggplot(mapping = aes(x = date)) +
+    geom_line(mapping = aes(y = delta_cases_7), colour = "blue") +
+    geom_line(mapping = aes(y = delta_deaths_7 * scalar), colour = "red") +
+    # format with two axes for ggplot, the lines are in reality plotted 
+    # for the same axis, requiring a scaling factor to be used.
+    scale_y_continuous(
+      name = "Cases - per 100k population",
+      sec.axis = sec_axis(
+        ~./scalar, 
+        name = "Deaths - per 100k population", 
+        )
+    ) +
+    # Amend the colours of the axes for readability
+  theme(
+    axis.title.y = element_text(colour = "blue", size=11),
+    axis.title.y.right = element_text(colour = "red", size=11),
+    axis.text.y = element_text(color = "blue", size = 10),
+    axis.text.y.right = element_text(color = "red", size = 10)
+  ) +
+
+  ggtitle("US COVID Cases and Deaths 7 day average, 22-Mar-2020 to 31-Dec-2022") +
+  labs(caption = 
+         str_c("Note: 2022 population imputed as ", 
+               format(us_pop_2022, big.mark = ","), 
+               " from 20/21 data." ))
+
+```
+
+This version of the chart seems more satisfactory: the spike in Dec 2021 - Jan 2022 is clearer and it is doubtful that the error introduced by imputing 2022 population is significant.
+
+### Part 2 - US State Comparison
+
+While understanding the trends on a national level can be helpful in understanding how COVID-19 impacted the United States, it is important to remember that the virus arrived in the United States at different times. For the next part of your analysis, you will begin to look at COVID related deaths and cases at the state and county-levels.
+
+##### Question 1
+
+```{r p2q1-response, messages = FALSE}
+
+# Determine the top 10 states in terms of total deaths and cases between 
+# March 15, 2020, and December 31, 2021. To do this, transform your combined
+# COVID-19 data to summarize deaths and cases by state up to December 31, 2021.
+state_data <- base_data %>% #filtered out territories outside of US mainland
+  group_by(date, state) %>%
+  summarise(total_deaths = sum(deaths), total_cases = sum(cases)) %>%
+  filter(date == date("2021-12-31")) %>%
+  arrange(desc(total_deaths))
+
+#check my output vs requirement
+state_data
+# Create variable to simplify inline code with a list of states
+top10_states <- state_data$state[1:10]
+
+```
+
+Question 1 of part 2 caused me to reflect on my initial processing of the data import and conclude that it would be better to split it into two stages: (1) clean and tidy the data, but avoid transformation **(base_data)**; (2) transform the data set for the requirements of each question **(us_data, state_data)**. 
+
+The results of the state-wise data analysis revealed the top 10 states in terms of total deaths up to 31 December 2021 were `r top10_states`.
+
+
+##### Question 2
+
+Determine the top 10 states in terms of deaths per 100,000 people and cases per 100,000 people between March 15, 2020, and December 31, 2021.
+
+Once you have both lists, briefly describe your methodology and your results. Do you expect the lists to be different than the one produced in Question 1? Which method, total or per 100,000 people, is a better method for reporting the statistics? 
+
+```{r p2q2-response}
+
+# Determine the top 10 states in terms of deaths and cases per 100,000 people between March 15, 2020, and December 31, 2021. You should first tidy and transform the population estimates to include population totals by state. Use your relational data verbs (e.g. full_join()) to join the population estimates with the cases and death statistics using the state name as a key. Then, use case_when() and grepl() to add a population column to your table that only includes the estimated population for the associated year. Finally, mutate your table to calculate deaths and cases per 100,000 people and summarize by state.
+
+# tidy us_population_estimates to get a column for 2020 and 2021 pop estimates.
+state_pop <- us_population_estimates %>%
+  group_by(Year, STNAME) %>%
+  summarise(pop_est = sum(Estimate)) %>%
+  pivot_wider(names_from = Year, names_prefix = "Y", values_from = pop_est)
+# join the result to state data
+state_data_q2 <- left_join(state_data, state_pop, 
+                        by = join_by(state == STNAME)) %>%
+  mutate(
+    Year = year(date),
+    # use grepl again to match 2020 with 2020 pop and 2021 with 2021 pop
+    pop_est = case_when(grepl(2020,Year) ~ Y2020,
+                        grepl(2021,Year) ~ Y2021,
+                        .default = NA),
+    deaths_per_100k = total_deaths * 100000 / pop_est,
+    cases_per_100k = total_cases * 100000 / pop_est
+  ) %>%
+  #summarise and order
+  select(state, deaths_per_100k, cases_per_100k) %>%
+  arrange(desc(deaths_per_100k))
+
+state_data_q2
+# compare with the base deaths per state statistic
+top10_states_per_100k <- state_data_q2$state[1:10]
+top10_states
+top10_states_per_100k
+match(top10_states, top10_states_per_100k)
+
+```
+Q2 uses the same techniques used in Part 1, this time to get a state wise analysis of deaths and cases per 100k of population.
+
+Data analysis revealed top 10 states in terms of total deaths at 31 December 2021 were `r top10_states`, whereas the top 10 states in terms of deaths per 100k were `r top10_states_per_100k`. Interesting that only *New York* and *New Jersey* appear in both tables. Cursory inspection seems to suggest southern states suffered worst per 100k of population. (for further analysis?)
+
+##### Question 3
+
+Now, select a state and calculate the seven-day averages for new cases and deaths per 100,000 people. Once you have calculated the averages, create a visualization using ggplot2 to represent the data. 
+
+```{r p2q3-new approach to base data}
+
+# Select a state and then filter by state and date range your data from Question 1. Calculate the seven-day average following the same procedure as Part 1.
+
+# Should have done properly from part 1 - always read the instructions to the end
+# Create base data tables that support all the questions
+# Write the subsequent transformations as functions to allow reuse.
+# Doing it now, even if it takes longer, for my improved learning.
+
+# base table 1 = new_pop_estimates, including imputed values for 2022 (linear)
+new_pop_estimates <- us_population_estimates %>%
+  pivot_wider(names_from = Year, names_prefix = "pop_", values_from = Estimate) %>%
+  mutate(pop_2022 = pop_2021 + (pop_2021 - pop_2020)) %>%
+  group_by (STNAME, CTYNAME)
+
+# base table 2 = base data filtered to exclude external territories 
+# with population included.
+new_base_data <- rbind(us_counties_2020, us_counties_2021, us_counties_2022) %>%
+  filter(
+    state != "Puerto Rico",
+    state != "Guam", 
+    state != "Virgin Islands", 
+    state !="Northern Mariana Islands", 
+    state !="American Samoa",
+    date >= as.Date("2020-03-15")
+  ) %>%
+  mutate(fips_chr = fips, # keep string version of fips in case I need it
+         fips = as.numeric(fips)) %>% # use for unique join key
+  left_join(new_pop_estimates, by = join_by(fips == fips)) %>%
+  select(-STNAME, -CTYNAME) %>%
+  mutate(
+    Year = year(date),
+    # note  - be careful summing these columns (e.g. by state by date)
+    # may give unexpected results as there is not a row for every county/date
+    population = case_when(grepl(2020,Year) ~ pop_2020,
+                            grepl(2021,Year) ~ pop_2021,
+                            grepl(2022,Year) ~ pop_2022,
+                            .default = NA),
+    
+    deaths_per_100k = case_when(grepl(2020,Year) ~ deaths * 100000 / pop_2020,
+                            grepl(2021,Year) ~ deaths * 100000 / pop_2021,
+                            grepl(2022,Year) ~ deaths * 100000 / pop_2022,
+                            .default = NA),
+    
+    cases_per_100k = case_when(grepl(2020,Year) ~ cases * 100000 / pop_2020,
+                           grepl(2021,Year) ~ cases * 100000 / pop_2021,
+                           grepl(2022,Year) ~ cases * 100000 / pop_2022,
+                           .default = NA)
+
+  ) %>%
+  arrange(fips, date)
+
+
+```
+
+```{r p2q3-response}
+# function to create a state level summary of cases and deaths
+state_summary <-function(selected_state) {
+  # get population numbers
+  state_pop <- new_pop_estimates %>%
+  filter(STNAME == selected_state) %>%
+  group_by(STNAME) %>%
+  summarise(pop_2020 = sum(pop_2020),
+            pop_2021 = sum(pop_2021),
+            pop_2022 = sum(pop_2022)
+            )
+  # get state information
+  state_data <- new_base_data %>%
+    filter(state == selected_state) %>%
+    group_by(date) %>%
+    summarise(
+      state = first(state),
+      total_deaths = sum(deaths),
+      total_cases = sum(cases)
+    ) %>%
+  mutate(
+    Year = year(date),
+    population = case_when(grepl(2020,Year) ~ state_pop$pop_2020,
+                          grepl(2021,Year) ~ state_pop$pop_2021,
+                          grepl(2022,Year) ~ state_pop$pop_2022,
+                          .default = NA),
+    deaths_per_100k = total_deaths * 100000 / population,
+    cases_per_100k = total_cases * 100000 / population,
+    d_deaths_per_100k_1 = deaths_per_100k - lag(deaths_per_100k, n = 1),
+    d_cases_per_100k_1 = cases_per_100k - lag(cases_per_100k, n = 1),
+    deaths_per_100k_7 = rollmean(d_deaths_per_100k_1, k = 7, align = "right", fill = NA),
+    cases_per_100k_7 = rollmean(d_cases_per_100k_1, k = 7, align = "right", fill = NA)
+  ) %>%
+  select(state, date, total_deaths, total_cases, population, 
+         deaths_per_100k, cases_per_100k, 
+         deaths_per_100k_7, cases_per_100k_7)
+  }
+
+# code to create data for one state (at county level)
+selected_state <- "Colorado" #could become user input
+
+state_data = state_summary(selected_state = selected_state)
+
+# check output = requirement
+state_data
+
+# function to plot line graph visualization of results
+chart_state_data <- function(state_data, 
+                             start_date = "2020-03-22", 
+                             end_date = "2022-12-31") {
+  # variables for chart
+  scalar = 50 # value to scale secondary axis (deaths)
+  state_title = state_data$state[1]
+  state_pop_2022 = max(state_data$population) #lazy approach, but works here.
+  chart_title = str_c(state_title, " COVID Cases and Deaths 7 day average, ", 
+                      start_date, " to ", end_date )
+  
+  state_data %>%
+    filter(between(date, as.Date(start_date), as.Date(end_date))) %>%
+           
+    ggplot(mapping = aes(x = date)) +
+      geom_line(mapping = aes(y = cases_per_100k_7), colour = "blue") +
+      geom_line(mapping = aes(y = deaths_per_100k_7 * scalar), colour = "red") +
+      # format with two axes for ggplot, the lines are in reality plotted 
+      # for the same axis, requiring a scaling factor to be used.
+      scale_y_continuous(
+        name = "Cases - per 100k population",
+        sec.axis = sec_axis(
+          ~./scalar, 
+          name = "Deaths - per 100k population", 
+          )
+      ) +
+      # Amend the colours of the axes for readability
+    theme(
+      axis.title.y = element_text(colour = "blue", size=11),
+      axis.title.y.right = element_text(colour = "red", size=11),
+      axis.text.y = element_text(color = "blue", size = 10),
+      axis.text.y.right = element_text(color = "red", size = 10)
+    ) +
+  
+    ggtitle(chart_title) +
+    labs(caption = 
+           str_c("Note: 2022 population imputed as ", 
+                 format(state_pop_2022, big.mark = ","), 
+                 " from 20/21 data." ))
+}
+# function allows any date range, selecting all three years 
+# which covers the quesion requirement for first 2.
+chart_state_data(state_data)
+
+```
+
+Given the repetitive nature of the analyses, I wanted to create functions that could be called with varying inputs to generate the required output.
+Initially I built a function to build out all the required stats at county level for the entire data set. Whilst this seemed an attractive approach that would provide the data for all questions, I discovered a number of challenges: 
+
+* The function took roughly 20 minutes to run
+* Summing counties to state level by date gave different results because not all counties reported on every date. I believe it would be possible to fix this in the base data.
+* The work involved to create this function was longer than simply repeating simpler functions.  
+
+Nonetheless, as the objective of the project is learning, I am happy I attempted it. My final methodology for Q3 involved three key parts:  
+
+1. Recreating the base data **new_pop_estimates** and **new_base_data**, because I wasn't happy with the way I did it in part 1.
+1. A function **state_summary()** to create the required output based on a given **selected_state**.
+1. A function **chart_state_data** to plot the data for a given date range. 
+
+##### Question 4
+
+Using the same state, identify the top 5 counties in terms of deaths and cases per 100,000 people. 
+
+```{r p2q4-response}
+# date range
+start_date = "2020-03-22" 
+end_date = "2021-12-31"
+selected_state = selected_state # allow new state as input
+
+county_data <- new_base_data %>%
+  filter(state == selected_state,
+         between(date, as.Date(start_date), as.Date(end_date))) %>%
+  group_by(county) %>%
+  summarise(
+    fips = first(fips),
+    total_deaths = max(deaths),
+    total_cases = max(cases),
+    deaths_per_100k = max(deaths_per_100k),
+    cases_per_100k = max(cases_per_100k)
+  )
+
+#Answer the question  
+county_data <- arrange(county_data, desc(total_deaths))
+county_data
+top_5_counties_deaths <- county_data$county[1:5]
+
+county_data <- arrange(county_data, desc(total_cases))
+county_data
+top_5_counties_cases <- county_data$county[1:5]
+
+```
+
+Given the work done to setup **new_base_data** this question was straightforward. To support reuse, it could be changed to a function.
+
+Results:  
+
+* In terms of COVID deaths the top five counties in `r selected_state`, as at `r end_date` were `r top_5_counties_deaths`.
+* In terms of COVID cases, the top fice were `r top_5_counties_cases`.
+
+##### Question 5
+
+Modify the code below for the map projection to plot county-level deaths and cases per 100,000 people for your state. 
+
+```{r p2q5-response}
+# To be able to compare with plot
+arrange(county_data, desc(deaths_per_100k))
+
+plot_usmap(regions = "county", include = selected_state, 
+           data = county_data, values = "deaths_per_100k", 
+           labels = TRUE, color = "blue") +
+  scale_fill_continuous(low = "white", high = "blue", name = "Deaths per 100,000")
+
+```
+
+Not much to say here, nice functionality that is easy to access and use for generating US maps. 
+
+
+##### Question 6
+
+Finally, select three other states and calculate the seven-day averages for new deaths and cases per 100,000 people for between March 15, 2020, and December 31, 2021. 
+
+
+```{r p2q6-response}
+
+colorado_data = state_summary(selected_state = "Colorado")
+new_york_data = state_summary(selected_state = "New York")
+california_data = state_summary(selected_state = "California")
+texas_data = state_summary(selected_state = "Texas")
+
+
+```
+
+For Q6, I re-used the function **state_summary**, this has the full date range from March 2020 to December 2022. However, I can trim the date ranges displayed in the ggplot function. 
+
+##### Question 7
+
+Create a visualization comparing the seven-day averages for new deaths and cases per 100,000 people for the four states you selected. 
+
+```{r p2q7-response}
+
+chart_state_data(colorado_data, start_date = "2020-03-22", end_date = "2021-12-31")
+chart_state_data(new_york_data, start_date = "2020-03-22", end_date = "2021-12-31")
+chart_state_data(california_data, start_date = "2020-03-22", end_date = "2021-12-31")
+chart_state_data(texas_data, start_date = "2020-03-22", end_date = "2021-12-31")
+```
+
+Reusing the function **chart_state_data** created in Q3 again.  
+
+The differences in the waves of deaths vs cases between these four states is startling. If a real project, would certainly prompt deeper analysis into why this happened.
+
+
+### Part 3 - Global Comparison
+
+```{r import-csse, include = FALSE}
+# Import global COVID-19 statistics aggregated by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University.
+# Import global population estimates from the World Bank.
+
+csse_global_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv")
+csse_global_cases <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
+csse_us_deaths <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
+csse_us_cases <- read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
+
+global_population_estimates <- read_csv("Data/global_population_estimates.csv")
+```
+
+##### Question 1
+
+Using the state you selected in Part 2 Question 2 compare the daily number of cases and deaths reported from the CSSE and NY Times. 
+
+```{r p3q1-response}
+
+# To compare your state data between the two data sets, 
+# you will first need to tidy the US CSSE death and cases data.
+long_csse_cases <- csse_us_cases %>%
+  filter(Province_State == "Colorado") %>%
+  pivot_longer(
+    cols = contains("/"),
+    names_to = "date",
+    values_to = "cases"
+  ) %>%
+  rename(state = Province_State, county = Admin2) %>%
+  mutate(date = as.Date(date, format("%m/%d/%y")))
+# note:only keeping the columns that we need for join and deaths
+long_csse_deaths <- csse_us_deaths %>%
+  filter(Province_State == "Colorado") %>%
+  pivot_longer(
+    cols = contains("/"),
+    names_to = "date",
+    values_to = "deaths"
+  ) %>%
+  mutate(date = as.Date(date, format("%m/%d/%y"))) %>%
+  select(UID, date, deaths)
+
+# Once you have tidied your data, join the two CSSE US data sets 
+# to include cases and deaths in one table. 
+# chose UID for join because full data set has some NA in FIPS column
+long_csse <- long_csse_cases %>%
+  left_join(long_csse_deaths, by = join_by(UID == UID, date == date)) %>%
+  #match table to output requirement given
+  select(FIPS, county, state, date, cases, deaths)
+
+# inspect data result to confirm meets the requirement
+long_csse
+
+# Finally, create two visualizations with one plotting the CSSE and NY Times 
+# cases and the other plotting the CSEE and NY Times deaths.
+
+# Recreating NY data again (my fault/learning - used us_data in different ways)
+us_data_part3 <- new_base_data %>% # use new_base_data developed in part 2
+  filter(state == "Colorado") %>%
+  group_by(date) %>%
+  summarise(
+    deaths_ny = sum(deaths), 
+    cases_ny = sum(cases),
+  )
+# Filter over same date range, summarise and join with ny data for chart
+chart_q1 <- long_csse %>%
+  filter(date >= as.Date("2020-03-15")) %>%
+  group_by(date) %>%
+  summarise(
+    deaths_csse = sum(deaths), 
+    cases_csse = sum(cases),
+  ) %>%
+  full_join(us_data_part3)
+
+chart_q1 
+
+```
+
+```{r p3q1-charts }
+
+chart_q1 %>%
+  pivot_longer(
+    cols = c(deaths_ny, deaths_csse),
+    names_to = "source",
+    values_to = "deaths", 
+    names_prefix = "deaths_") %>%
+  ggplot(mapping = aes(x = date)) + 
+  geom_line(mapping = aes(y = deaths, colour = source), na.rm = TRUE) + 
+  labs(title = "Comparing CSSE and NY data for Colorado COVID Deaths",
+       ylab = "Deaths", 
+       xlab = "Date")
+
+chart_q1 %>%
+  pivot_longer(
+    cols = c(cases_ny, cases_csse),
+    names_to = "source",
+    values_to = "cases", 
+    names_prefix = "cases_") %>%
+  ggplot(mapping = aes(x = date)) + 
+  geom_line(mapping = aes(y = cases, colour = source), na.rm = TRUE) + 
+  labs(title = "Comparing CSSE and NY data for Colorado COVID Deaths",
+       ylab = "Deaths", 
+       xlab = "Date")
+```
+
+For Part 3 Question 1, it was first necessary to leverage **pivot_longer()** to create one observation per date for each county, state combination. Then the form of the data will be similar to the NY data used in parts one and two of the project. 
+
+Summarising to cumulative deaths and cases for a single state (Colorado) allowed a quick comparison of the NY and CSSE data sets to check they are giving comparable results for the same statistic. Although a number of missing values were found (i.e. each data set had some dates where there were no reported cases/deaths) and removed with *na.rm = TRUE*, the overall conclusion is still that the data sets are indeed similar. 
+
+##### Question 2 
+
+Now that you have verified the data reported from the CSSE and NY Times are similar, combine the global and US CSSE data sets and identify the top 10 countries in terms of deaths and cases per 100,000 people between March 15, 2020, and December 31, 2021.
+
+```{r p3q2-response}
+
+# First, combine and tidy the CSSE death and cases data sets.
+long_global_cases <- csse_global_cases %>%
+  rename(country = `Country/Region`,
+         state = `Province/State` ) %>% #get rid of the /, easier later
+  pivot_longer(
+    cols = contains("/"),
+    names_to = "date",
+    values_to = "cases"
+  ) %>%
+  mutate(date = as.Date(date, format("%m/%d/%y")))
+
+long_global_deaths <- csse_global_deaths %>%
+  rename(country = `Country/Region`,
+         state = `Province/State` ) %>% #get rid of the /, easier later
+  pivot_longer(
+    cols = contains("/"),
+    names_to = "date",
+    values_to = "deaths"
+  ) %>%
+  mutate(date = as.Date(date, format("%m/%d/%y")))
+
+long_global <- long_global_cases %>%
+  left_join(long_global_deaths, by = join_by(country == country,
+                                             state == state,
+                                             Lat == Lat,
+                                             Long == Long,
+                                             date == date)) %>%
+  filter(between(date, as.Date("2020-03-15"), as.Date("2021-12-31"))) %>%
+  group_by(country,date) %>%
+  summarise(cases = sum(cases),
+            deaths = sum(deaths))
+
+long_global
+
+# Inspect the results for US and compare with local US stats over same period
+filter(long_global, country == "US")
+
+new_base_data %>%
+  filter(between(date, as.Date("2020-03-15"), as.Date("2021-12-31"))) %>%
+  group_by(date) %>%
+  summarise(cases = sum(cases),
+            deaths = sum(deaths))
+
+# As comparison shows global stats are roughly equivalent to local stats,
+# little point combining US and global tables (nothing added at country level)
+
+# Then, tidy the global population estimates. 
+global_pop <- global_population_estimates %>%
+  rename(Y2020 = `2020 [YR2020]`, 
+         Y2021 = `2021 [YR2021]`, 
+         country = `Country Name`) %>%
+  mutate(Y2020 = as.numeric(Y2020), 
+         Y2021 = as.numeric(Y2021)) %>%
+  select(country, Y2020, Y2021)
+
+long_global <- long_global %>%
+  left_join(global_pop, by = join_by(country == country)) %>%
+  filter(Y2020 > 1, Y2021 > 1) %>%
+  mutate(
+    Year = year(date),
+    deaths_per_100k = case_when(grepl(2020,Year) ~ deaths * 100000 / Y2020,
+                                grepl(2021,Year) ~ deaths * 100000 / Y2021,
+                                .default = NA),
+    cases_per_100k = case_when(grepl(2020,Year) ~ cases * 100000 / Y2020,
+                                grepl(2021,Year) ~ cases * 100000 / Y2021,
+                                .default = NA),
+  )
+
+# Now ready to answer question
+top10_countries <- long_global %>%
+  group_by(country) %>%
+  summarise(
+    deaths_per_100k = max(deaths_per_100k),
+    cases_per_100k = max(cases_per_100k)
+  )
+
+# Top 10 countries by deaths_per_100k
+top10_countries <- arrange(top10_countries, desc(deaths_per_100k))
+top10_countries
+top10_by_deaths <- top10_countries$country[1:10]
+
+# Top 10 countries by casess_per_100k
+top10_countries <- arrange(top10_countries, desc(cases_per_100k))
+top10_countries
+top10_by_cases <- top10_countries$country[1:10]
+
+```
+
+For Q2, the tidying of the data was essentially the same as in Q1. In addition, I did some cleaning of column names to make them easier/quicker to manipulate in code (removing special characters).  
+
+The one aspect that confused me a little, was why the question appeared to ask for the combination of US and global data sets. As all the subsequent analyses are at country level, I saw no point in doing that. I performed a cursory check that the national level us data was similar to that in the global CSSE data set, then decided not to combine the two. 
+
+Calculation of the deaths/cases per 100k of population was similar to that already performed in part one of the project.
+
+**Results / answer to the question:** The top 10 countries ranked by deaths per 100k of population in the period 2020-03-15 to 2021-12-31 are `r top10_by_deaths` and the top 10 ranked by cases are `r top10_by_cases`.
+
+
+##### Question 3
+
+Construct a visualization plotting the 10 countries in terms of deaths and cases per 100,000 people between March 15, 2020, and December 31, 2021. In designing your visualization keep the number of data you will be plotting in mind. You may wish to create two separate visualizations, one for deaths and another for cases. 
+
+```{r p3q3-response}
+
+long_global %>%
+  filter(country %in% top10_by_deaths) %>%
+  # convert the country column to a factor in order to enforce legend order
+  # as highest to lowest, for better readability.
+  mutate(country = factor(country, levels = top10_by_deaths)) %>%
+  ggplot(mapping = aes(x = date, y = deaths_per_100k, colour = country)) +
+  geom_line() +
+  ggtitle("Cumulative COVID deaths for top 10 countries by death_per_100k")
+
+long_global %>%
+  filter(country %in% top10_by_cases) %>%
+  # convert the country column to a factor in order to enforce legend order
+  # as highest to lowest, for better readability.
+  mutate(country = factor(country, levels = top10_by_cases)) %>%
+  ggplot(mapping = aes(x = date, y = cases_per_100k, colour = country)) +
+  geom_line() +
+  ggtitle("Cumulative COVID cases for top 10 countries by case_per_100k")
+
+```
+
+The key point of learning for me here was to remember to use **factor* to enforce the legend to order as per the lines on the chart.
+
+
+##### Question 4
+
+Finally, select four countries from one continent and create visualizations for the daily number of confirmed cases per 100,000 and the daily number of deaths per 100,000 people between March 15, 2020, and December 31, 2021. 
+
+```{r p3q4-response}
+
+countries = c("France", "Germany", "Italy", "United Kingdom")
+
+day_one = as.Date("2020-03-15") # use for grepl statement used with lag below.
+
+#initialise data set with 0 records
+four_country_data <- filter(long_global, date == 0)
+
+for(c in countries){
+  c_data <-long_global %>%
+    filter(country == c) %>%
+    mutate(
+      delta_deaths = deaths_per_100k - lag(deaths_per_100k, 1),
+      delta_cases = cases_per_100k - lag(cases_per_100k,1) 
+    )
+  four_country_data <- rbind(four_country_data, c_data)
+}
+
+four_country_data %>%
+  ggplot(mapping = aes(x = date, y = delta_deaths, colour = country), na.rm = TRUE) +
+  geom_line() +
+  ggtitle(str_c("Daily COVID deaths for ", countries[1], ", ", 
+                countries[2], ", ", countries[3], " & ", countries[4]))
+
+four_country_data %>%
+  ggplot(mapping = aes(x = date, y = delta_cases, colour = country), na.rm = TRUE) +
+  geom_line() +
+  ggtitle(str_c("Daily COVID cases for ", countries[1], ", ", 
+                countries[2], ", ", countries[3], " & ", countries[4]))
+
+```
+
+Interesting in generating the last graphics, the following caused challenges:  
+
+* Cycling through four countries to create deltas using lag. Couldn't make **grepl** work. I ended up with a for loop, less than satisfactory.
+* Delta values at the individual country level in Europe have swinging values from day to day and large negatives (I assume caused by data corrections at the time). 
+
+With more time, this should be investigated. However, given the primary purpose of this project was learning how to use R for such tasks, I will leave it for a future endeavour.
+
+
+#### sessionInfo
+
+```{r sessionInfo}
+
+sessionInfo()
+
+```
+
+
+
