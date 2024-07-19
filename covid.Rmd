@@ -25,6 +25,20 @@ library(usmap)
 4. You should include at least two visualizations and one model.  
 5. Be sure to identify any bias possible in the data and in your analysis.
 
+
+## Summary
+
+This report looks at the COVID data sets, primarily from John Hopkins University. It is deliberately broken into sections to show the data science process of import, tidy and then an iterative visualize, analyze, model cycle.
+
+The report shows a number of charts to represent the evolution of COVID over time and applies a couple of methods to create nuanced views of the trends over time. Namely, comparing cumulative cases and deaths during each period then creating 7-day rolling averages to allow a more granular assessment of changes over time.
+
+It ends by analysing the experiences of the states in terms of deaths per million people. Given the large variation in outcome performance by state, the analysis tries to answer the question: "Is there a linkage between the COVID outcome and the state's political leaning?". Whilst the data does support that there is a correlation, the analysis stops short of claiming causation, for which more evidence would be needed.
+
+Throughout the report, reference is made to potential sources of bias, which include the sourcing of data and potential influence on the presentation of results.
+
+I continue to view these exercises as much about learning the tools of the trade as they are about presenting meaningful analysis and conclusions. As such there is rather more about method than is perhaps necessary and I have kept in charts which I might otherwise have deleted.
+
+
 ## Import JHU CSSE COVID-19 Dataset and other data
 
 This project uses the COVID time-series data set from John Hopkins University. Full information can be found here: <https://github.com/CSSEGISandData/COVID-19/blob/master/csse_covid_19_data/README.md>
@@ -340,7 +354,7 @@ The chart shows that there is significant variation in deaths per million across
 This variation triggered me to look a little deeper at one of the possible explanations.
 
 
-## Modelling COVID outcome vs Political Leaning - BIAS caution
+## Modelling COVID outcome vs Political Leaning  - Is there a correlation between politics and COVID deaths?
 
 A quick inspection of the geographic plot, appeared to show a linkage between politics and COVID outcome. To validate if this was supported by the data, I imported a data set from [https://worldpopulationreview.com/state-rankings/most-republican-states] which shows the 2024 political leanings of each state in the union. Then, performed a quick correlation analysis between the degree of Republican political advantage and the deaths per million experienced in that state.
 
@@ -364,6 +378,15 @@ political_correlation = round(cor(state_covid_politics$deaths_per_million, state
 population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)
 ```
 
-A correlation of `r political_correlation` indicates a **moderate positive correlation** between Republican leaning politics and poor COVID outcomes, assessed by deaths per million in the state during the period `r min_date` to `r max_date`. This correlation figure aligns with a visual interpretation of the plot and the tabular data associated. Nine of the top 10 states ranked by death per million are Republican leaning, whereas 7 of the 10 best performing states lean towards Democrat.
+## Conclusion
+
+Whilst noting some potential biases (see above), a correlation of `r political_correlation` indicates a **moderate positive correlation** between Republican leaning politics and poor COVID outcomes, assessed by deaths per million in the state during the period `r min_date` to `r max_date`. This correlation figure aligns with a visual interpretation of the plot and the tabular data associated. Nine of the top 10 states ranked by death per million are Republican leaning, whereas 7 of the 10 best performing states lean towards Democrat.
 
 
+## sessionInfo
+
+```{r sessionInfo}
+
+sessionInfo()
+
+```

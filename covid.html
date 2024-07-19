@@ -375,6 +375,33 @@ interest to you.</li>
 analysis.</li>
 </ol>
 </div>
+<div id="summary" class="section level2">
+<h2>Summary</h2>
+<p>This report looks at the COVID data sets, primarily from John Hopkins
+University. It is deliberately broken into sections to show the data
+science process of import, tidy and then an iterative visualize,
+analyze, model cycle.</p>
+<p>The report shows a number of charts to represent the evolution of
+COVID over time and applies a couple of methods to create nuanced views
+of the trends over time. Namely, comparing cumulative cases and deaths
+during each period then creating 7-day rolling averages to allow a more
+granular assessment of changes over time.</p>
+<p>It ends by analysing the experiences of the states in terms of deaths
+per million people. Given the large variation in outcome performance by
+state, the analysis tries to answer the question: “Is there a linkage
+between the COVID outcome and the state’s political leaning?”. Whilst
+the data does support that there is a correlation, the analysis stops
+short of claiming causation, for which more evidence would be
+needed.</p>
+<p>Throughout the report, reference is made to potential sources of
+bias, which include the sourcing of data and potential influence on the
+presentation of results.</p>
+<p>I continue to view these exercises as much about learning the tools
+of the trade as they are about presenting meaningful analysis and
+conclusions. As such there is rather more about method than is perhaps
+necessary and I have kept in charts which I might otherwise have
+deleted.</p>
+</div>
 <div id="import-jhu-csse-covid-19-dataset-and-other-data" class="section level2">
 <h2>Import JHU CSSE COVID-19 Dataset and other data</h2>
 <p>This project uses the COVID time-series data set from John Hopkins
@@ -804,8 +831,9 @@ whilst Vermont experienced 32% of that at 1489 deaths per million.</p>
 possible explanations.</p>
 </div>
 </div>
-<div id="modelling-covid-outcome-vs-political-leaning---bias-caution" class="section level2">
-<h2>Modelling COVID outcome vs Political Leaning - BIAS caution</h2>
+<div id="modelling-covid-outcome-vs-political-leaning---is-there-a-correlation-between-politics-and-covid-deaths" class="section level2">
+<h2>Modelling COVID outcome vs Political Leaning - Is there a
+correlation between politics and COVID deaths?</h2>
 <p>A quick inspection of the geographic plot, appeared to show a linkage
 between politics and COVID outcome. To validate if this was supported by
 the data, I imported a data set from [<a href="https://worldpopulationreview.com/state-rankings/most-republican-states" class="uri">https://worldpopulationreview.com/state-rankings/most-republican-states</a>]
@@ -847,13 +875,60 @@ state_covid_politics</code></pre>
 <pre class="r"><code>political_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$republican_adv), digits = 2)
 # just to see if there is any linkage with the most populous states (seems not)
 population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)</code></pre>
-<p>A correlation of 0.41 indicates a <strong>moderate positive
-correlation</strong> between Republican leaning politics and poor COVID
-outcomes, assessed by deaths per million in the state during the period
-2020-01-22 to 2023-03-09. This correlation figure aligns with a visual
-interpretation of the plot and the tabular data associated. Nine of the
-top 10 states ranked by death per million are Republican leaning,
-whereas 7 of the 10 best performing states lean towards Democrat.</p>
+</div>
+<div id="conclusion" class="section level2">
+<h2>Conclusion</h2>
+<p>Whilst noting some potential biases (see above), a correlation of
+0.41 indicates a <strong>moderate positive correlation</strong> between
+Republican leaning politics and poor COVID outcomes, assessed by deaths
+per million in the state during the period 2020-01-22 to 2023-03-09.
+This correlation figure aligns with a visual interpretation of the plot
+and the tabular data associated. Nine of the top 10 states ranked by
+death per million are Republican leaning, whereas 7 of the 10 best
+performing states lean towards Democrat.</p>
+</div>
+<div id="sessioninfo" class="section level2">
+<h2>sessionInfo</h2>
+<pre class="r"><code>sessionInfo()</code></pre>
+<pre><code>## R version 4.4.1 (2024-06-14)
+## Platform: aarch64-apple-darwin20
+## Running under: macOS Sonoma 14.5
+## 
+## Matrix products: default
+## BLAS:   /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRblas.0.dylib 
+## LAPACK: /Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.0
+## 
+## locale:
+## [1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8
+## 
+## time zone: Europe/Lisbon
+## tzcode source: internal
+## 
+## attached base packages:
+## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## 
+## other attached packages:
+##  [1] usmap_0.7.1     zoo_1.8-12      scales_1.3.0    lubridate_1.9.3
+##  [5] forcats_1.0.0   stringr_1.5.1   dplyr_1.1.4     purrr_1.0.2    
+##  [9] readr_2.1.5     tidyr_1.3.1     tibble_3.2.1    ggplot2_3.5.1  
+## [13] tidyverse_2.0.0
+## 
+## loaded via a namespace (and not attached):
+##  [1] sass_0.4.9         utf8_1.2.4         generics_0.1.3     class_7.3-22      
+##  [5] KernSmooth_2.23-24 stringi_1.8.4      lattice_0.22-6     hms_1.1.3         
+##  [9] digest_0.6.36      magrittr_2.0.3     evaluate_0.24.0    grid_4.4.1        
+## [13] timechange_0.3.0   fastmap_1.2.0      jsonlite_1.8.8     e1071_1.7-14      
+## [17] DBI_1.2.3          fansi_1.0.6        jquerylib_0.1.4    cli_3.6.3         
+## [21] rlang_1.1.4        crayon_1.5.3       units_0.8-5        bit64_4.0.5       
+## [25] munsell_0.5.1      withr_3.0.0        cachem_1.1.0       yaml_2.3.8        
+## [29] tools_4.4.1        parallel_4.4.1     tzdb_0.4.0         usmapdata_0.3.0   
+## [33] colorspace_2.1-0   curl_5.2.1         vctrs_0.6.5        R6_2.5.1          
+## [37] proxy_0.4-27       classInt_0.4-10    lifecycle_1.0.4    bit_4.0.5         
+## [41] vroom_1.6.5        pkgconfig_2.0.3    pillar_1.9.0       bslib_0.7.0       
+## [45] gtable_0.3.5       Rcpp_1.0.13        glue_1.7.0         sf_1.0-16         
+## [49] highr_0.11         xfun_0.45          tidyselect_1.2.1   rstudioapi_0.16.0 
+## [53] knitr_1.47         farver_2.1.2       htmltools_0.5.8.1  labeling_0.4.3    
+## [57] rmarkdown_2.27     compiler_4.4.1</code></pre>
 </div>
 
 
