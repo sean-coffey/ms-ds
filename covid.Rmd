@@ -25,9 +25,25 @@ library(usmap)
 4. You should include at least two visualizations and one model.  
 5. Be sure to identify any bias possible in the data and in your analysis.
 
-## Import JHU CSSE COVID-19 Dataset
+## Import JHU CSSE COVID-19 Dataset and other data
 
 This project uses the COVID time-series data set from John Hopkins University. Full information can be found here: <https://github.com/CSSEGISandData/COVID-19/blob/master/csse_covid_19_data/README.md>
+
+In addition global population data is taken from CSSEGI (as per the lectures).
+
+There is a local csv data file which contains the political leaning by state drawn from the website worldpopulationreview.com.
+
+**Without this local csv file: the markdown won't knit.**
+
+#### Bias
+
+The project question asks that we look at bias. The John Hopkins data set is well respected, has been used by many and their site goes to length to explain the sources and errors in the data. As such, I consider it trustworthy. The most obvious source of bias here is the reporting itself.
+
+1. In the US data, states may have differing policies for how they record cases and how diligently this was performed. (Obviously, more testing is likely to mean more cases)
+2. These variations are much harder to interpret in the global data which will certainly have many differing approaches to what is considered a case and what is considered a death caused by COVID.
+
+The numbers of deaths, seems less prone to difficulty than the number of cases. Nonetheless, if this work was being used for other than academic practice, I would want to understand more about the sources and potential problems.
+
 
 ```{r import, message = FALSE}
 # creates four variables containing the csv files from John Hopkins github COVID content
@@ -116,6 +132,8 @@ summary(us)
 ## Simple visualisation and analysis
 
 The subsequent section is pretty close to what was shown in the lectures, which I have kept as revision of key R functions and to view a couple of basic analyses.
+
+The results introduced NaNs and infinite values, I chose not to deal with these, because (a) I doubt it had a major impact on the overall picture, (b) I wanted to improve on my own analyses rather than develop what was provided in the lectures.
 
 ``` {r visualisation}
 
@@ -308,13 +326,19 @@ state_performance <- us_by_state %>%
   inner_join(statepop, by = join_by(Province_State == full)) %>%
   select(fips, Province_State, cases, deaths, Population, deaths_per_million)
 
-state_performance
+head(state_performance, n=10 )
+tail(state_performance, n = 10)
 
 plot_usmap(data = state_performance, regions = "states", values = "deaths_per_million", labels = TRUE, label_color = "white") + 
   scale_fill_continuous(low = "blue", high = "red", name = "Deaths Per Million", label = scales::comma) +
   labs(title = "US States", subtitle = "Deaths per Million by March 2023") +
   theme(legend.position = "right")
 ```
+
+The chart shows that there is significant variation in deaths per million across the states. Arizon experiencing 4547 deaths per million, whilst Vermont experienced 32% of that at 1489 deaths per million.
+
+This variation triggered me to look a little deeper at one of the possible explanations.
+
 
 ## Modelling COVID outcome vs Political Leaning - BIAS caution
 
