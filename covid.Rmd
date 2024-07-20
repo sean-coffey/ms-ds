@@ -1,9 +1,10 @@
 ---
-title: "Final Project 2: Reproducible Report on COVID19 Data"
+title: 'Final Project 2: Reproducible Report on COVID19 Data'
 author: "Sean Coffey"
 date: "2024-07-19"
 output:
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -22,7 +23,7 @@ library(usmap)
 1. Import, tidy and analyze the COVID19 dataset from the Johns Hopkins Github site. This is the same dataset I used in class. Feel free to repeat and reuse what I did if you want to. 
 2. Be sure your project is a reproducible .rmd document which your peers can download and knit. 
 3. It should contain some visualization and  analysis that is unique to your project. You may use the data to do any analysis that is of interest to you. 
-4. You should include at least two visualizations and one model.  
+4. You should include at least two visualizations and one model.
 5. Be sure to identify any bias possible in the data and in your analysis.
 
 
@@ -221,7 +222,7 @@ The chart shows the positive change in 2022 as case numbers continued to rise sh
 However, as becomes clear in the next section, the cumulative data is hiding something. Whilst the cumulative chart appears to show that the ratio of deaths to cases halved at the start of 2022 (a significant positive improvement), actually this change is largely explained by a major peak in cases during January 2022, so the improvement is overstated.
 
 
-#### How did the number of cases and deaths in the US evolve over time?
+### How did the number of cases and deaths in the US evolve over time?
 
 ``` {r us evolution over time}
 
@@ -258,7 +259,8 @@ ggplot(data = us_totals, mapping = aes(x = date)) +
 
 ```
 
-#### Seven day rolling averages
+
+### Seven day rolling averages
 
 As the cumulative data could be hiding detail and the daily data (above) shows so much variance day-to-day that it becomes hard to see short term trends, I decided to include an assessment of the 7 day rolling averages for cases and deaths. I remember this was one of the key stats that the majority of news channels showed at the time. It also seems a useful R technique to keep to hand for timeseries analysis. 
 
@@ -319,7 +321,7 @@ I have not been able to determine the reason for the large peak in cases during 
 It is also interesting to note that the ratio of cases to deaths seems to move in the wrong direction at the end of the period. Is this the result of new strains of the virus? Or, some other reason. More work would be needed.
 
 
-#### How did the performance compare by US state during COVID?
+### How did the performance compare by US state during COVID?
 
 As we also have the state data, it was interesting to look at how the various states compared in terms of their performance in handling COVID.
 
