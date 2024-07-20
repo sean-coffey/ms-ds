@@ -2,7 +2,9 @@
 title: "NYPD Shooting Incidents"
 author: "Sean Coffey"
 date: "2024-07-08"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -11,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Libraries
 library(tidyverse)
 library(lubridate)
+library(usmap)
 ```
 
 ## Import NYPD Shooting Incident Data Set
@@ -23,6 +26,9 @@ This is a breakdown of every shooting incident that occurred in NYC going back t
 # creates a variable containing the csv file downloaded from the data.gov website
 nypd_url = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
 nypd_data = read_csv(nypd_url)
+
+pop_url = "https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD"
+pop_data = read_csv(pop_url)
 ```
 
 ## Basic tidying and transforming of the data set
@@ -34,6 +40,12 @@ The data is already tidy (one row per incident). There are two main issues with 
 The missing values issue with the perp data (age-group, sex, race) is significant, approx half the observations are unknown or NA. There is no sensible imputation here, so will probably have to accept that analysis of these factors may be misleading and needs to be handled carefully.
 
 ```{r tidy and transform}
+
+# Add fips codes to data, which can be used later for simple geo visualisation
+fips_codes <- as_tibble(matrix(c("BRONX","BROOKLYN","MANHATTAN","QUEENS","STATEN ISLAND",36005,36047,36061,36081,36085),ncol = 2))
+colnames(fips_codes) <-c("BORO","fips")
+fips_codes$fips = as.integer(fips_codes$fips)
+  
 nypd <-nypd_data %>%
   # changing the data types appropriately
   mutate(OCCUR_DATE = mdy(OCCUR_DATE),
@@ -51,11 +63,27 @@ nypd <-nypd_data %>%
          Latitude = as.numeric(Latitude)) %>%
   #Partial field selection for project analyses - reducing from 21 columns to 15
   #Location information has a high percentage of missing values, so will remove for now
-  select(OCCUR_DATE, OCCUR_TIME, BORO, PRECINCT, JURISDICTION_CODE, LOCATION_DESC, 
+  full_join(fips_codes) %>%
+  select(OCCUR_DATE, OCCUR_TIME, fips, BORO, PRECINCT, JURISDICTION_CODE, LOCATION_DESC, 
          STATISTICAL_MURDER_FLAG, PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE, 
          Latitude, Longitude) # keeping because if I have time, may look at trying to plot on map.
 
+# Simple population data transformed to support use in geo analysis below
+pop <- pop_data %>%
+  select(Borough,"1950","1960","1970","1980","1990","2000","2010","2020") %>%
+  pivot_longer(
+    cols = c("1950","1960","1970","1980","1990","2000","2010","2020"),
+    names_to = "year",
+    values_to = "population"
+    ) %>%
+  rename(BORO = Borough) %>%
+  mutate(BORO = toupper(BORO),
+         year = as.integer(year)) %>%
+  filter(BORO != "NYC TOTAL") %>%
+  full_join(fips_codes, by = join_by(BORO == BORO))
+
 summary(nypd)
+summary(pop)
 ```
 
 ## First visualisations
@@ -114,9 +142,50 @@ nypd %>%
 
 ```
 
-## An attempt at a model
+## Is there a noticeable change in shootings rate (per capita) for each borough?
 
-Just a trend analysis, is there really a significant decrease in shootings over time?
+Just to learn more about using geo plots, I wanted to use **plot_usmap** for this visualization. Slighly unsatisfactory as this function uses county names rather than borough names for labeling. (I'ms sure I could fix it if I spent more time). Also, as the changes over time are minor and the graphic is using colour to represent values, in hindsight, I could have made the conclusions more obvious. (In fact, my earlier graph in this report is probably a better way to show changes over time.). Nonetheless, this was useful learning.
+
+To create the chart, I joined some basic population data (also from data.gov) with the nypd shootings data. As I only have population data for 2010, 2020, I decided to use these years to make a comparison to see changes over time.
+
+The basic conclusion here is that comparing 2010 and 2020:
+
+1. Bronx shows very little change and continues to have the highest shootings per capita rate
+2. Brooklyn (Kings) has improved slightly, but is still second worst
+3. Manhattan (New York) and Queens have improved somewhat
+4. Staten Island (Richmond) has the lowest rate of shootings per capita
+
+``` {r map data}
+plot_simple_map <- function(shootings_year) {
+  
+  pop_year <- pop %>%
+    filter(year == shootings_year)
+  
+  nypd_map <- nypd %>%
+    filter(year(OCCUR_DATE) == shootings_year) %>%
+    group_by(fips) %>%
+    summarise(shootings = n()) %>%
+    full_join(pop_year, by = join_by(fips == fips)) %>%
+    select(fips, shootings, population) %>%
+    mutate(shootings_per_pop = shootings * 1000 / population)
+  
+  # Note: labels show counties which are equivalent to the boroughs even if names are different  
+  plot_usmap(data = nypd_map, regions = "counties", values = "shootings_per_pop", 
+             include = c(36005,36047,36061,36081,36085),
+             labels = TRUE, label_color = "white") + 
+    scale_fill_continuous(low = "blue", high = "red", name = "shootings per 1000", label = scales::comma) +
+    labs(title = "NY Borough(county) Shootings per 1000 people", subtitle = str_c("Totals in ", shootings_year)) +
+    theme(legend.position = "right")
+}
+plot_simple_map(2010)
+plot_simple_map(2020)
+```
+
+
+## Is there a significant decrease in shootings over time?
+
+A simple linear model to look at the trend in shootings over time.
+
 ``` {r model}
 
 nypd_model <- nypd%>%
@@ -143,17 +212,25 @@ The assessment question asks for a discussion on where bias might be introduced 
 
 1. Handling of missing data. In particular only approx 50% of cases have perp race, sex, age information. Using the remaining data to conclude on distribution of these characteristics may be erroneous without understanding the reasons behind the missing values. Is it reasonable to assume they follow the same distribution as the known values or not?
 
-2. It would seem important to understand more about the underlying populations before concluding on the meaningfulness of distribution of characteristics for perps and victims. If the underlying population is 90% white-hispanic vs 90% white vs 90% black, clearly that will determine the Baynesian probabilities of perps and victims coming from those racial classes. I avoided any analysis of race as I didn't have this understanding when I compiled the document.
+2. It would seem important to understand more about the underlying populations before concluding on the meaningfulness of distribution of characteristics for perps and victims. If the underlying population is 90% white-hispanic vs 90% white vs 90% black, clearly that will determine the Baynesian probabilities of perps and victims coming from those racial classes. I avoided any analysis of race as I didn't have this understanding when I compiled the document. Also, before concluding on the impact of racial characteristics, it would be important to look at other socio-economic factors such as income and housing. These may be the true causes of the observed differences.
 
 3. Causation and correlation bias: the data show that you're significantly more likely to be shot at night if you are a male under the age of 45. But is this just a reflection of who is on the streets? Similarly the data seem to show you are more likely to be shot during the summer months, but this may also just be that there are more people out and about during the warmer months. 
 
 4. Is the initial data collection biased? It is coming from the NYPD, does that source have an inherent bias in what is collected, reported, analysed and prosecuted. I don't know, I would hope not at this base level, but it might be useful to have some alternative sources for comparison. 
 
 
+## Conclusions
 
-## System Info
-```{r sysInfo}
-Sys.info()
+There is an overall downward trend in the shootings in New York. Whilst the COVID period clearly had a negative impact (shootings almost doubled that year), the downward trend continued from that point. There are some simple conclusions that can be drawn such as; (a) shootings per capita is highest in Bronx and lowest in Staten Island, (b) more shootings happen at night and in the summer than during the day or the winter period. However, much of the interesting analysis regarding the impact of population demographics and other socio economic factors on shootings is prevented by the high number of missing values in the data and potential introduction of bias.
+
+
+
+
+
+## sessionInfo
+
+```{r sessionInfo}
+
+sessionInfo()
 
 ```
-
