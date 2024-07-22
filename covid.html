@@ -385,13 +385,17 @@ COVID over time and applies a couple of methods to create nuanced views
 of the trends over time. Namely, comparing cumulative cases and deaths
 during each period then creating 7-day rolling averages to allow a more
 granular assessment of changes over time.</p>
-<p>It ends by analysing the experiences of the states in terms of deaths
-per million people. Given the large variation in outcome performance by
-state, the analysis tries to answer the question: “Is there a linkage
-between the COVID outcome and the state’s political leaning?”. Whilst
-the data does support that there is a correlation, the analysis stops
-short of claiming causation, for which more evidence would be
-needed.</p>
+<p>The experiences of the states in terms of deaths per million people
+were analysed and visualised geographically.</p>
+<p>The question requests modelling. Given the large variation in outcome
+performance by state, the analysis tries to answer the question: “Is
+there a significant linkage between the COVID outcome and the state’s
+political leaning?”. A data set for political leaning by US state was
+imported and used to model the linkage between “political leaning” and
+“deaths per million” during the COVID period.</p>
+<p>Whilst the data does support that there is a correlation and
+Democratic states appear to perform better, the analysis stops short of
+claiming causation, for which more evidence would be needed.</p>
 <p>Throughout the report, reference is made to potential sources of
 bias, which include the sourcing of data and potential influence on the
 presentation of results.</p>
@@ -835,22 +839,28 @@ possible explanations.</p>
 correlation between politics and COVID deaths?</h2>
 <p>A quick inspection of the geographic plot, appeared to show a linkage
 between politics and COVID outcome. To validate if this was supported by
-the data, I imported a data set from [<a href="https://worldpopulationreview.com/state-rankings/most-republican-states" class="uri">https://worldpopulationreview.com/state-rankings/most-republican-states</a>]
-which shows the 2024 political leanings of each state in the union.
-Then, performed a quick correlation analysis between the degree of
-Republican political advantage and the deaths per million experienced in
-that state.</p>
+the data, a data set was imported from [<a href="https://worldpopulationreview.com/state-rankings/most-republican-states" class="uri">https://worldpopulationreview.com/state-rankings/most-republican-states</a>]
+which shows the 2024 political leanings of each state in the union. With
+more time, a political landscape for each year of the COVID period would
+be preferable, but for the sake of this academic exercise, the 2024 data
+provides an approximation. Then, a quick correlation analysis between
+the degree of Republican political advantage and the deaths per million
+experienced in that state was performed. This was supplemented with a
+t-test to reject or confirm the hypothesis that mean performance (in
+terms of deaths per million) is significantly different between
+Democratic and Republican states.</p>
 <p>There are potential issues with this assessment:</p>
 <ol style="list-style-type: decimal">
-<li>The data source shows 2024 political alignment, which has almost
-certainly changed since the period under analysis. (not that much
-though, I suspect)</li>
+<li>As mentioned, the data source shows 2024 political alignment, which
+has almost certainly changed since the period under analysis.</li>
 <li>The correlation is only moderate and might be confused by other
-factors that are also impacting the outcomes from COVID.</li>
+factors that are also impacting the outcomes from COVID. For example,
+rural areas vs city areas could be more important than the
+politics.</li>
 <li>Personal bias that the democrat policies for dealing with COVID
 seemed to make more sense, which could influence my thinking. (Though I
 have tried to avoid this.)</li>
-<li>As always, correlation does not show causation.</li>
+<li>Correlation does not necessarily mean causation.</li>
 </ol>
 <pre class="r"><code>state_covid_politics &lt;- state_performance %&gt;%
   inner_join(political_leaning, by = join_by(Province_State == state))
@@ -873,7 +883,59 @@ state_covid_politics</code></pre>
 ## # ℹ 2 more variables: republican_adv &lt;dbl&gt;, lean &lt;chr&gt;</code></pre>
 <pre class="r"><code>political_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$republican_adv), digits = 2)
 # just to see if there is any linkage with the most populous states (seems not)
-population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)</code></pre>
+population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)
+
+
+# A statistical test for the difference in performance between Republican and Democratic states
+rep_dem &lt;- state_covid_politics %&gt;%
+  group_by(lean) %&gt;%
+  summarise(mean_perf = mean(deaths_per_million), var_perf = var(deaths_per_million), n = n())
+
+rep_dem</code></pre>
+<pre><code>## # A tibble: 2 × 4
+##   lean  mean_perf var_perf     n
+##   &lt;chr&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;int&gt;
+## 1 D         2856.  735296.    19
+## 2 R         3625.  525410.    31</code></pre>
+<pre class="r"><code># comparing variances
+SD_sq = sum(rep_dem[1,3])
+SR_sq = sum(rep_dem[2,3])
+meanD = sum(rep_dem[1,2])
+meanR = sum(rep_dem[2,2])
+nD = sum(rep_dem[1,4])
+nR = sum(rep_dem[2,4])
+alpha = .05
+
+
+# Use an F-Statistic to determine if variances are similar for both populations
+crit_val = SD_sq/SR_sq
+F_stat = qf(p = 1-alpha/2, df1 = nD, df2 = nR)
+
+if(crit_val &gt; F_stat) {
+  similar_variance = FALSE
+} else {
+  similar_variance = TRUE
+}
+str_c(&quot;A critical value of &quot;, round(crit_val, 3), &quot; compared to an F-statistic of &quot;, round(F_stat, 3), 
+      &quot; means the null hypothesis of similar variance is likely &quot;, similar_variance, 
+      &quot; with a &quot;, 1-alpha, &quot; confidence level.&quot;)</code></pre>
+<pre><code>## [1] &quot;A critical value of 1.399 compared to an F-statistic of 2.197 means the null hypothesis of similar variance is likely TRUE with a 0.95 confidence level.&quot;</code></pre>
+<pre class="r"><code># calculate pooled variance
+SP_sq = ((nD-1)*SD_sq + (nR-1)*SR_sq)/(nD + nR - 2) 
+
+# calculate crit value for t-test and 
+cee = qt(p = 1-alpha/2, df = (nD + nR -2)) * sqrt((1/nD + 1/nR)*SP_sq)
+if((meanR-meanD) &gt; cee) {
+  H1 = TRUE
+  msg = str_c(&quot;We can reject the null hypothesis at the &quot;, 1-alpha, 
+              &quot; confidence level and conclude that Democratic states do perform better than Republican states.&quot;)
+} else {
+  H1 = FALSE
+  msg = str_c(&quot;We cannot reject the null hypothesis at the &quot;, 1-alpha, 
+              &quot; confidence level, there is no significant difference in performance between Democratic and Republican states.&quot;)
+}
+msg</code></pre>
+<pre><code>## [1] &quot;We can reject the null hypothesis at the 0.95 confidence level and conclude that Democratic states do perform better than Republican states.&quot;</code></pre>
 </div>
 <div id="conclusion" class="section level2">
 <h2>Conclusion</h2>
@@ -884,7 +946,12 @@ per million in the state during the period 2020-01-22 to 2023-03-09.
 This correlation figure aligns with a visual interpretation of the plot
 and the tabular data associated. Nine of the top 10 states ranked by
 death per million are Republican leaning, whereas 7 of the 10 best
-performing states lean towards Democrat.</p>
+performing states lean towards Democrat. A t-test at 95% confidence
+level confirmed the hypotheses that Democratic states perform
+statistically significantly better than Republican leaning states in
+terms of deaths per million during the COVID period. Issues with bias
+and confounding variables (e.g. rural vs city) are noted meaning it is
+hard to assert any kind of causal relationship between the two.</p>
 </div>
 <div id="sessioninfo" class="section level2">
 <h2>sessionInfo</h2>

@@ -108,27 +108,27 @@ nypd_by_date <- nypd %>%
                                OCCUR_TIME <= "21:00" & OCCUR_TIME >= "07:00" ~ "day")) %>%
   group_by(day, month, year)
 
-nypd_by_date %>%
+borough_plot <- nypd_by_date %>%
   ggplot(aes(x=year, fill = BORO)) +
   geom_bar() + 
   labs(title = "Shootings Each Year by Borough", y = NULL)
 
-nypd_by_date %>%
+murder_plot <- nypd_by_date %>%
   ggplot(aes(x=year, fill = STATISTICAL_MURDER_FLAG)) +
   geom_bar() + 
   labs(title = "Shootings Each Year  - Murders?", y = NULL)
 
-nypd_by_date %>%
+day_night_plot <- nypd_by_date %>%
   ggplot(aes(x=year, fill = day_night)) +
   geom_bar() + 
   labs(title = "Shootings Each Year Day or Night", y = NULL)
 
-nypd_by_date %>%
+year_distribution_plot <- nypd_by_date %>%
   ggplot(aes(x=month, fill = day_night)) +
   geom_bar() + 
   labs(title = "Shootings distribution during a year", y = NULL)
 
-nypd %>%
+vic_demographics_plot <- nypd %>%
   filter(VIC_AGE_GROUP != "UNKNOWN" & VIC_AGE_GROUP != "1022") %>%
   filter(VIC_SEX != "U") %>%
   group_by(VIC_SEX, VIC_AGE_GROUP) %>%
@@ -139,6 +139,16 @@ nypd %>%
   theme_light()+
   facet_wrap(~VIC_SEX, scales = "free") +
   labs(title = "Victim Sex and Age Group", x = NULL, y = NULL)
+
+# make a list of plots
+simple_plots <- list(borough_plot,murder_plot,day_night_plot,year_distribution_plot,vic_demographics_plot)
+# not sure why names(simple_plots) isn't working, I'll worry about that later
+filenames = c('borough_plot','murder_plot','day_night_plot','year_distribution_plot','vic_demographics_plot')
+
+# show the plots in the Rmd
+simple_plots
+# save the plots for later use in presentation
+mapply(ggsave, filename = paste0(filenames,".png"), plot = simple_plots, device="png")
 
 ```
 
@@ -177,8 +187,20 @@ plot_simple_map <- function(shootings_year) {
     labs(title = "NY Borough(county) Shootings per 1000 people", subtitle = str_c("Totals in ", shootings_year)) +
     theme(legend.position = "right")
 }
-plot_simple_map(2010)
-plot_simple_map(2020)
+map_1 <- plot_simple_map(2010)
+map_2 <- plot_simple_map(2020)
+
+ggsave(map_1, 
+       filename = "map_1.png",
+       device = "png",
+       height = 6, width = 5, units = "in")
+
+ggsave(map_2, 
+       filename = "map_2.png",
+       device = "png",
+       height = 6, width = 5, units = "in")
+map_1
+map_2
 ```
 
 
@@ -196,12 +218,18 @@ nypd_model <- nypd%>%
 simple_model <- lm(shootings ~ month_year, data = nypd_model)
 summary(simple_model)
 
-nypd_model %>%
+model_plot <- nypd_model %>%
   mutate(predicted_shootings = predict(simple_model)) %>%
   ggplot() +
   geom_point(aes(x = month_year, y = shootings), colour = "blue") +
   geom_point(aes(x = month_year, y = predicted_shootings), colour = "red") +
   labs(title = "Model prediction for Shootings over time", x = NULL, y = NULL)
+
+ggsave(model_plot, 
+       filename = "model_plot.png",
+       device = "png",
+       height = 6, width = 5, units = "in")
+model_plot
 ```
 
 ## Discussion about bias

@@ -3,8 +3,8 @@ title: 'Final Project 2: Reproducible Report on COVID19 Data'
 author: "Sean Coffey"
 date: "2024-07-19"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -33,9 +33,14 @@ This report looks at the COVID data sets, primarily from John Hopkins University
 
 The report shows a number of charts to represent the evolution of COVID over time and applies a couple of methods to create nuanced views of the trends over time. Namely, comparing cumulative cases and deaths during each period then creating 7-day rolling averages to allow a more granular assessment of changes over time.
 
-It ends by analysing the experiences of the states in terms of deaths per million people. Given the large variation in outcome performance by state, the analysis tries to answer the question: "Is there a linkage between the COVID outcome and the state's political leaning?". Whilst the data does support that there is a correlation, the analysis stops short of claiming causation, for which more evidence would be needed.
+The experiences of the states in terms of deaths per million people were analysed and visualised geographically. 
+
+The question requests modelling. Given the large variation in outcome performance by state, the analysis tries to answer the question: "Is there a significant linkage between the COVID outcome and the state's political leaning?". A data set for political leaning by US state was imported and used to model the linkage between "political leaning" and "deaths per million" during the COVID period.
+
+Whilst the data does support that there is a correlation and Democratic states appear to perform better, the analysis stops short of claiming causation, for which more evidence would be needed.
 
 Throughout the report, reference is made to potential sources of bias, which include the sourcing of data and potential influence on the presentation of results.
+
 
 I continue to view these exercises as much about learning the tools of the trade as they are about presenting meaningful analysis and conclusions. As such there is rather more about method than is perhaps necessary and I have kept in charts which I might otherwise have deleted.
 
@@ -358,17 +363,17 @@ This variation triggered me to look a little deeper at one of the possible expla
 
 ## Modelling COVID outcome vs Political Leaning  - Is there a correlation between politics and COVID deaths?
 
-A quick inspection of the geographic plot, appeared to show a linkage between politics and COVID outcome. To validate if this was supported by the data, I imported a data set from [https://worldpopulationreview.com/state-rankings/most-republican-states] which shows the 2024 political leanings of each state in the union. Then, performed a quick correlation analysis between the degree of Republican political advantage and the deaths per million experienced in that state.
+A quick inspection of the geographic plot, appeared to show a linkage between politics and COVID outcome. To validate if this was supported by the data, a data set was imported from [https://worldpopulationreview.com/state-rankings/most-republican-states] which shows the 2024 political leanings of each state in the union. With more time, a political landscape for each year of the COVID period would be preferable, but for the sake of this academic exercise, the 2024 data provides an approximation. Then, a quick correlation analysis between the degree of Republican political advantage and the deaths per million experienced in that state was performed. This was supplemented with a t-test to reject or confirm the hypothesis that mean performance (in terms of deaths per million) is significantly different between Democratic and Republican states.
 
 There are potential issues with this assessment:
 
-1. The data source shows 2024 political alignment, which has almost certainly changed since the period under analysis. (not that much though, I suspect)
-2. The correlation is only moderate and might be confused by other factors that are also impacting the outcomes from COVID. 
+1. As mentioned, the data source shows 2024 political alignment, which has almost certainly changed since the period under analysis.
+2. The correlation is only moderate and might be confused by other factors that are also impacting the outcomes from COVID. For example, rural areas vs city areas could be more important than the politics. 
 3. Personal bias that the democrat policies for dealing with COVID seemed to make more sense, which could influence my thinking. (Though I have tried to avoid this.)
-4. As always, correlation does not show causation.
+4. Correlation does not necessarily mean causation.
 
 
-``` {r modelling}
+``` {r modelling 1}
 
 state_covid_politics <- state_performance %>%
   inner_join(political_leaning, by = join_by(Province_State == state))
@@ -378,11 +383,61 @@ state_covid_politics
 political_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$republican_adv), digits = 2)
 # just to see if there is any linkage with the most populous states (seems not)
 population_correlation = round(cor(state_covid_politics$deaths_per_million, state_covid_politics$Population), digits = 2)
+
+
+# A statistical test for the difference in performance between Republican and Democratic states
+rep_dem <- state_covid_politics %>%
+  group_by(lean) %>%
+  summarise(mean_perf = mean(deaths_per_million), var_perf = var(deaths_per_million), n = n())
+
+rep_dem
+
+# comparing variances
+SD_sq = sum(rep_dem[1,3])
+SR_sq = sum(rep_dem[2,3])
+meanD = sum(rep_dem[1,2])
+meanR = sum(rep_dem[2,2])
+nD = sum(rep_dem[1,4])
+nR = sum(rep_dem[2,4])
+alpha = .05
+
+
+# Use an F-Statistic to determine if variances are similar for both populations
+crit_val = SD_sq/SR_sq
+F_stat = qf(p = 1-alpha/2, df1 = nD, df2 = nR)
+
+if(crit_val > F_stat) {
+  similar_variance = FALSE
+} else {
+  similar_variance = TRUE
+}
+str_c("A critical value of ", round(crit_val, 3), " compared to an F-statistic of ", round(F_stat, 3), 
+      " means the null hypothesis of similar variance is likely ", similar_variance, 
+      " with a ", 1-alpha, " confidence level.")
+
+# calculate pooled variance
+SP_sq = ((nD-1)*SD_sq + (nR-1)*SR_sq)/(nD + nR - 2) 
+
+# calculate crit value for t-test and 
+cee = qt(p = 1-alpha/2, df = (nD + nR -2)) * sqrt((1/nD + 1/nR)*SP_sq)
+if((meanR-meanD) > cee) {
+  H1 = TRUE
+  msg = str_c("We can reject the null hypothesis at the ", 1-alpha, 
+              " confidence level and conclude that Democratic states do perform better than Republican states.")
+} else {
+  H1 = FALSE
+  msg = str_c("We cannot reject the null hypothesis at the ", 1-alpha, 
+              " confidence level, there is no significant difference in performance between Democratic and Republican states.")
+}
+msg
+
+
 ```
+
 
 ## Conclusion
 
-Whilst noting some potential biases (see above), a correlation of `r political_correlation` indicates a **moderate positive correlation** between Republican leaning politics and poor COVID outcomes, assessed by deaths per million in the state during the period `r min_date` to `r max_date`. This correlation figure aligns with a visual interpretation of the plot and the tabular data associated. Nine of the top 10 states ranked by death per million are Republican leaning, whereas 7 of the 10 best performing states lean towards Democrat.
+Whilst noting some potential biases (see above), a correlation of `r political_correlation` indicates a **moderate positive correlation** between Republican leaning politics and poor COVID outcomes, assessed by deaths per million in the state during the period `r min_date` to `r max_date`. This correlation figure aligns with a visual interpretation of the plot and the tabular data associated. Nine of the top 10 states ranked by death per million are Republican leaning, whereas 7 of the 10 best performing states lean towards Democrat. A t-test at 95% confidence level confirmed the hypotheses that Democratic states perform statistically significantly better than Republican leaning states in terms of deaths per million during the COVID period. Issues with bias and confounding variables (e.g. rural vs city) are noted meaning it is hard to assert any kind of causal relationship between the two. 
 
 
 ## sessionInfo
